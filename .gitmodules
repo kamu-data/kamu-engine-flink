@@ -1,0 +1,6 @@
+[submodule "core.manifests"]
+	path = core.manifests
+	url = https://github.com/kamu-data/kamu-core-manifests.git
+[submodule "core.utils"]
+	path = core.utils
+	url = https://github.com/kamu-data/kamu-core-utils.git
