@@ -60,9 +60,9 @@ class BoundedOutOfOrderWatermark[T](
     val ts = other.extractTimestamp(element, previousElementTimestamp)
     if (ts < lastWatermark) {
       logger.warn(
-        "Event is below current watermark {} and will be discarded: {}",
-        Instant.ofEpochMilli(lastWatermark),
-        element.toString
+        s"Event is below current watermark (${Instant.ofEpochMilli(ts)} < ${Instant
+          .ofEpochMilli(lastWatermark)}) and will be discarded: {}",
+        element
       )
     }
     ts

@@ -16,3 +16,18 @@ image:
 .PHONY: image-push
 image-push:
 	docker push $(ENGINE_IMAGE)
+
+
+.PHONY: run
+run:
+	FLINK_DOCKER_IMAGE_NAME=$(ENGINE_IMAGE) docker-compose up
+
+
+.PHONY: run-all-in-one
+run-all-in-one:
+	docker run \
+		-it --rm \
+		-v $(PWD)/target/scala-2.12:/opt/engine/bin \
+		-v $(PWD)/workspace:/opt/engine/workspace \
+		--entrypoint bash \
+		$(FLINK_BASE_IMAGE)

@@ -5,10 +5,10 @@ import java.sql.Timestamp
 import org.apache.flink.api.java.io.RowCsvInputFormat
 import org.apache.flink.core.fs.Path
 import org.apache.flink.streaming.api.TimeCharacteristic
-import org.apache.flink.streaming.api.functions.AssignerWithPunctuatedWatermarks
 import org.apache.flink.streaming.api.functions.source.FileProcessingMode
+import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.watermark.Watermark
+import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.table.api.Types
 import org.apache.flink.table.api.scala._
 import org.apache.flink.types.Row
@@ -22,10 +22,10 @@ object EngineAppX {
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
     env.setParallelism(1)
 
-    val inputPath = "/opt/data"
+    val inputPath = "/opt/engine/workspace/data/tickers_csv"
     val inputFormat = new RowCsvInputFormat(
       new Path(inputPath),
-      Array(Types.SQL_TIMESTAMP(), Types.STRING(), Types.DOUBLE())
+      Array(Types.SQL_TIMESTAMP(), Types.STRING(), Types.INT())
     )
 
     val inputStream = env
@@ -36,18 +36,14 @@ object EngineAppX {
         interval = 1000
       )(inputFormat.getProducedType)
       .assignTimestampsAndWatermarks(
-        new AssignerWithPunctuatedWatermarks[Row] {
-          override def extractTimestamp(
-            element: Row,
-            previousElementTimestamp: Long
-          ): Long = element.getField(0).asInstanceOf[Timestamp].getTime
-
-          override def checkAndGetNextWatermark(
-            lastElement: Row,
-            extractedTimestamp: Long
-          ) = new Watermark(extractedTimestamp)
+        new BoundedOutOfOrdernessTimestampExtractor[Row](Time.days(1)) {
+          override def extractTimestamp(row: Row): Long = {
+            row.getField(0).asInstanceOf[Timestamp].getTime
+          }
         }
       )
+
+    inputStream.print()
 
     val table =
       tEnv.fromDataStream(inputStream, 'event_time.rowtime, 'symbol, 'price)
@@ -71,9 +67,9 @@ object EngineAppX {
       .toAppendStream[Row]
       .print()
 
-    //env.execute()
+    env.execute()
 
-    val job = env.executeAsync()
+    /*val job = env.executeAsync()
     for (_ <- 1 to 10) {
       println(job.getJobStatus.get())
       Thread.sleep(500)
@@ -83,6 +79,6 @@ object EngineAppX {
         false,
         "savepoints"
       )
-      .get()
+      .get()*/
   }
 }

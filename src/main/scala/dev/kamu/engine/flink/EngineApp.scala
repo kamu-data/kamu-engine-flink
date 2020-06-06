@@ -2,89 +2,141 @@ package dev.kamu.engine.flink
 
 import dev.kamu.core.manifests.infra.TransformConfig
 import dev.kamu.core.utils.ManualClock
+import dev.kamu.core.utils.fs._
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.scala._
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FileSystem
+import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.log4j.LogManager
 
 object EngineApp {
-  /*
-  def executeTransform(data: Seq[Row], typeInfo: TypeInformation[Row]): Unit = {
-    val env = StreamExecutionEnvironment.getExecutionEnvironment
-    val tEnv = StreamTableEnvironment.create(env)
-
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
-    env.setParallelism(1)
-
-    val inputStream = env
-      .addSource(
-        new UnboundedFromElementsFunction[Row](
-          typeInfo.createSerializer(env.getConfig),
-          scala.collection.JavaConversions.asJavaCollection(data)
-        )
-      )(typeInfo)
-      .assignTimestampsAndWatermarks(
-        new EventTimeFromRowWatermark(
-          _.getField(0).asInstanceOf[Timestamp].getTime
-        )
-      )
-
-    val table =
-      tEnv.fromDataStream(inputStream, 'event_time.rowtime, 'symbol, 'price)
-
-    table.printSchema()
-    tEnv.createTemporaryView("Tickers", table)
-
-    val resultStream = tEnv
-      .sqlQuery(
-        """
-        SELECT
-          TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
-          symbol as symbol,
-          min(price) as `min`,
-          max(price) as `max`
-        FROM Tickers
-        GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-        """
-      )
-      .toAppendStream[Row]
-
-    val avroSchema = SchemaConverter.convert(resultStream.dataType)
-    val avroConverter = new AvroConverter(avroSchema.toString())
-    val avroStream =
-      resultStream.map(
-        r => avroConverter.convertRowToAvroRecord(r)
-      )
-
-    /*val parquetSink = StreamingFileSink
-      .forBulkFormat(
-        new Path("data/result"),
-        ParquetAvroWriters.forGenericRecord(avroSchema)
-      )
-      .build()*/
-
-    avroStream.addSink(new ParuqetSink(avroSchema.toString()))
-
-    val f = new File(".status")
-    if (f.exists())
-      f.delete()
-
-    //env.execute()
-    val job = env.executeAsync()
-    while (job.getJobStatus.get() == JobStatus.RUNNING && !f.exists()) {
-      println("zzzzzzz")
-      Thread.sleep(500)
-    }
-    if (job.getJobStatus.get == JobStatus.RUNNING)
-      job.stopWithSavepoint(false, "savepoints").get()
-  }*/
+  val configPath = new Path("/opt/engine/config.yaml")
 
   def main(args: Array[String]): Unit = {
     val logger = LogManager.getLogger(getClass.getName)
 
-    val config = TransformConfig.load()
+    val fileSystem = FileSystem.get(new Configuration())
+
+    if (!fileSystem.exists(configPath))
+      throw new RuntimeException(s"Could not find config: $configPath")
+
+    val inputStream = fileSystem.open(configPath)
+    val config = TransformConfig.load(inputStream)
+    inputStream.close()
+
+    /*val config = TransformConfig.load(
+      """
+        |apiVersion: 1
+        |kind: TransformConfig
+        |content:
+        |  tasks:
+        |  - datasetID: b
+        |    source:
+        |      inputs:
+        |        - id: a
+        |      transform:
+        |        engine: flink
+        |        watermarks:
+        |        - id: a
+        |          eventTimeColumn: event_time
+        |          maxLateBy: 1 day
+        |        query: >
+        |          SELECT
+        |            TUMBLE_START(event_time, INTERVAL '1' DAY) as start_time,
+        |            TUMBLE_END(event_time, INTERVAL '1' DAY) as end_time,
+        |            count(*) as `num_transactions`,
+        |            - min(delta) as `largest_expense`,
+        |            - sum(delta) as `total_spent`
+        |          FROM a
+        |          WHERE delta < 0
+        |          GROUP BY TUMBLE(event_time, INTERVAL '1' DAY)
+        |    inputSlices:
+        |      a:
+        |        hash: ""
+        |        interval: "(-inf, inf)"
+        |        numRecords: 0
+        |    datasetLayouts:
+        |      a:
+        |        metadataDir: workspace/meta/a
+        |        dataDir: workspace/data/a
+        |        checkpointsDir: workspace/checkpoints/a
+        |        cacheDir: workspace/cache/a
+        |      b:
+        |        metadataDir: workspace/meta/b
+        |        dataDir: workspace/data/b
+        |        checkpointsDir: workspace/checkpoints/b
+        |        cacheDir: workspace/cache/b
+        |    datasetVocabs:
+        |      a:
+        |        systemTimeColumn: system_time
+        |        corruptRecordColumn: __corrupt_record__
+        |      b:
+        |        systemTimeColumn: system_time
+        |        corruptRecordColumn: __corrupt_record__
+        |    metadataOutputDir: workspace/
+        |""".stripMargin
+    )*/
+
+    /*
+    val rootDir = new Path("/opt/engine")
+    val inputDir = rootDir.resolve("workspace/data/tickers")
+    val outputDataDir = rootDir.resolve("workspace/data/tickers_summary")
+    val outputCheckpointDir =
+      rootDir.resolve("workspace/checkpoints/tickers_summary")
+    val outputDir = rootDir.resolve("workspace")
+    val config = TransformConfig.load(
+      s"""
+         |apiVersion: 1
+         |kind: TransformConfig
+         |content:
+         |  tasks:
+         |  - datasetID: result
+         |    source:
+         |      inputs:
+         |        - id: tickers
+         |      transform:
+         |        engine: flink
+         |        watermarks:
+         |        - id: tickers
+         |          eventTimeColumn: event_time
+         |          maxLateBy: 1 day
+         |        query: >
+         |          SELECT
+         |            TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
+         |            symbol as symbol,
+         |            min(price) as `min`,
+         |            max(price) as `max`
+         |          FROM tickers
+         |          GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
+         |    inputSlices:
+         |      tickers:
+         |        hash: ""
+         |        interval: "(-inf, inf)"
+         |        numRecords: 0
+         |    datasetLayouts:
+         |      tickers:
+         |        metadataDir: /none
+         |        dataDir: $inputDir
+         |        checkpointsDir: /none
+         |        cacheDir: /none
+         |      result:
+         |        metadataDir: /none
+         |        dataDir: $outputDataDir
+         |        checkpointsDir: $outputCheckpointDir
+         |        cacheDir: /none
+         |    datasetVocabs:
+         |      tickers:
+         |        systemTimeColumn: system_time
+         |        corruptRecordColumn: __corrupt_record__
+         |      result:
+         |        systemTimeColumn: system_time
+         |        corruptRecordColumn: __corrupt_record__
+         |    metadataOutputDir: $outputDir
+         |""".stripMargin
+    )
+     */
+
     if (config.tasks.isEmpty) {
       logger.warn("No tasks specified")
       return
@@ -92,14 +144,15 @@ object EngineApp {
 
     logger.info(s"Running with config: $config")
 
-    val fileSystem = FileSystem.get(new Configuration())
     val systemClock = new ManualClock()
 
     val env = StreamExecutionEnvironment.getExecutionEnvironment
+    //val env = new StreamExecutionEnvironment(new CustomLocalStreamExecutionEnvironment())
     val tEnv = StreamTableEnvironment.create(env)
 
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
     env.setParallelism(1)
+    //env.getJavaEnv.getConfig.disableAutoGeneratedUIDs()
 
     for (taskConfig <- config.tasks) {
       systemClock.advance()

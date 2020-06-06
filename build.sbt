@@ -27,6 +27,7 @@ lazy val root = (project in file("."))
   //.enablePlugins(AutomateHeaderPlugin)
   .settings(
     aggregate in assembly := false,
+    test in assembly := {},
     //assemblySettings
     libraryDependencies ++= flinkDependencies
   )
@@ -122,7 +123,9 @@ val flinkDependencies = Seq(
     .exclude("commons-beanutils", "commons-beanutils-core"),
   "org.scalatest" %% "scalatest" % "3.0.8" % "test",
   "org.apache.flink" %% "flink-test-utils" % flinkVersion % "test",
-  "org.apache.flink" %% "flink-runtime" % flinkVersion % "test"
+  "org.apache.flink" %% "flink-runtime" % flinkVersion % "test",
+  // TODO: newer avro breaks flink serialization?
+  "com.sksamuel.avro4s" %% "avro4s-core" % "2.0.4" % "test"
 )
 
 // make run command include the provided dependencies

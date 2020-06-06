@@ -22,7 +22,7 @@ import java.util.TimeZone;
 public class AvroConverter implements Serializable {
     private static final TimeZone LOCAL_TZ = TimeZone.getDefault();
 
-    private String stringSchema;
+    private final String stringSchema;
 
     private transient Schema schema;
 

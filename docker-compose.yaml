@@ -9,6 +9,9 @@ services:
     command: jobmanager
     environment:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
+    volumes:
+      - ./target/scala-2.12:/opt/engine/bin
+      - ./workspace:/opt/engine/workspace
 
   taskmanager:
     image: ${FLINK_DOCKER_IMAGE_NAME}
@@ -22,3 +25,6 @@ services:
       - "jobmanager:jobmanager"
     environment:
       - JOB_MANAGER_RPC_ADDRESS=jobmanager
+    volumes:
+      - ./target/scala-2-12/engine.flink.jar:/opt/engine/engine.flink.jar
+      - ./workspace:/opt/engine/workspace
