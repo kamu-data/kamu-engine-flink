@@ -129,7 +129,8 @@ class Engine(
         else None
     )
 
-    val outputStream = fileSystem.create(task.resultPath, false)
+    val resultPath = task.resultDir.resolve("result.yaml")
+    val outputStream = fileSystem.create(resultPath, false)
     yaml.save(Manifest(transformResult), outputStream)
     outputStream.close()
   }
