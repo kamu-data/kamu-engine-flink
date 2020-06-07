@@ -3,11 +3,7 @@ package dev.kamu.engine.flink.test
 import scala.concurrent.duration._
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.Manifest
-import dev.kamu.core.manifests.infra.{
-  TransformConfig,
-  TransformResult,
-  TransformTaskConfig
-}
+import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, ExecuteQueryResult}
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.utils.fs._
@@ -31,23 +27,27 @@ class EngineRunner(
   private val logger = LoggerFactory.getLogger(getClass)
 
   def run(
-    task: TransformTaskConfig
-  ): TransformResult = {
+    request: ExecuteQueryRequest
+  ): ExecuteQueryResult = {
     val engineJar = new Path(".")
       .resolve("target", "scala-2.12", "engine.flink.jar")
 
-    val configPathInContainer = new Path("/opt/engine/config.yaml")
+    if (!fileSystem.exists(engineJar))
+      throw new RuntimeException(s"Assembly does not exist: $engineJar")
+
+    val inOutDirInContainer = new Path("/opt/engine/in-out")
     val engineJarInContainer = new Path("/opt/engine/bin/engine.flink.jar")
 
-    val volumeMap = toVolumeMap(task)
+    val volumeMap = toVolumeMap(request)
 
-    Temp.withTempFile(
+    Temp.withRandomTempDir(
       fileSystem,
-      "kamu-config-",
-      os => yaml.save(Manifest(TransformConfig(Vector(task))), os)
-    ) { tempConfigPath =>
-      if (!fileSystem.exists(engineJar))
-        throw new RuntimeException(s"Assembly does not exist: $engineJar")
+      "kamu-inout-"
+    ) { inOutDir =>
+      val outputStream =
+        fileSystem.create(inOutDir.resolve("request.yaml"), false)
+      yaml.save(Manifest(request), outputStream)
+      outputStream.close()
 
       dockerClient.withNetwork(networkName) {
 
@@ -64,7 +64,7 @@ class EngineRunner(
             network = Some(networkName),
             volumeMap = Map(
               engineJar -> engineJarInContainer,
-              tempConfigPath -> configPathInContainer
+              inOutDir -> inOutDirInContainer
             ) ++ volumeMap
           )
         ).run(Some(IOHandlerPresets.redirectOutputTagged("jobmanager: ")))
@@ -86,7 +86,7 @@ class EngineRunner(
 
         jobManager.waitForHostPort(8081, 15 seconds)
 
-        val prevSavepoint = getPrevSavepoint(task)
+        val prevSavepoint = getPrevSavepoint(request)
         val savepointArgs = prevSavepoint.map(p => s"-s $p").getOrElse("")
 
         try {
@@ -130,21 +130,17 @@ class EngineRunner(
           jobManager.join()
         }
       }
+
+      val inputStream = fileSystem.open(inOutDir.resolve("result.yaml"))
+      val result = yaml.load[Manifest[ExecuteQueryResult]](inputStream).content
+      inputStream.close()
+      result
     }
-
-    val resultPath = task.resultDir.resolve("result.yaml")
-    val inputStream = fileSystem.open(resultPath)
-    val result = yaml.load[Manifest[TransformResult]](inputStream).content
-    inputStream.close()
-
-    fileSystem.delete(resultPath, false)
-
-    result
   }
 
-  protected def getPrevSavepoint(task: TransformTaskConfig): Option[Path] = {
+  protected def getPrevSavepoint(request: ExecuteQueryRequest): Option[Path] = {
     val checkpointsDir =
-      task.datasetLayouts(task.datasetID.toString).checkpointsDir
+      request.datasetLayouts(request.datasetID.toString).checkpointsDir
 
     if (!fileSystem.exists(checkpointsDir))
       return None
@@ -172,10 +168,10 @@ class EngineRunner(
     oldSavepoint.foreach(fileSystem.delete(_, true))
   }
 
-  protected def toVolumeMap(task: TransformTaskConfig): Map[Path, Path] = {
-    val layoutPaths = task.datasetLayouts.values
+  protected def toVolumeMap(request: ExecuteQueryRequest): Map[Path, Path] = {
+    request.datasetLayouts.values
       .flatMap(l => List(l.checkpointsDir, l.dataDir))
-
-    (layoutPaths ++ List(task.resultDir)).map(p => (p, p)).toMap
+      .map(p => (p, p))
+      .toMap
   }
 }

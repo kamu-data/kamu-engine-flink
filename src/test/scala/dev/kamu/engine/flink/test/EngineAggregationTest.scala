@@ -6,7 +6,7 @@ import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import com.sksamuel.avro4s._
 import pureconfig.generic.auto._
 import dev.kamu.core.utils.fs._
-import dev.kamu.core.manifests.infra.TransformConfig
+import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.utils.DockerClient
@@ -91,52 +91,49 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
       val inputDataDir = tempDir.resolve("data", "in")
       val outputDataDir = tempDir.resolve("data", "out")
       val outputCheckpointDir = tempDir.resolve("checkpoints", "out")
-      val resultDir = tempDir.resolve("result")
 
-      val config = yaml.load[TransformConfig](
+      val request = yaml.load[ExecuteQueryRequest](
         s"""
-           |tasks:
-           |- datasetID: out
-           |  source:
-           |    inputs:
-           |      - id: in
-           |    transform:
-           |      engine: flink
-           |      watermarks:
-           |      - id: in
-           |        eventTimeColumn: event_time
-           |      query: >
-           |        SELECT
-           |          TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
-           |          symbol as symbol,
-           |          min(price) as `min`,
-           |          max(price) as `max`
-           |        FROM `in`
-           |        GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-           |  inputSlices:
-           |    in:
-           |      hash: ""
-           |      interval: "(-inf, inf)"
-           |      numRecords: 0
-           |  datasetLayouts:
-           |    in:
-           |      metadataDir: /none
-           |      dataDir: $inputDataDir
-           |      checkpointsDir: /none
-           |      cacheDir: /none
-           |    out:
-           |      metadataDir: /none
-           |      dataDir: $outputDataDir
-           |      checkpointsDir: $outputCheckpointDir
-           |      cacheDir: /none
-           |  datasetVocabs:
-           |    in:
-           |      systemTimeColumn: system_time
-           |      corruptRecordColumn: __corrupt_record__
-           |    out:
-           |      systemTimeColumn: system_time
-           |      corruptRecordColumn: __corrupt_record__
-           |  resultDir: $resultDir
+           |datasetID: out
+           |source:
+           |  inputs:
+           |    - id: in
+           |  transform:
+           |    engine: flink
+           |    watermarks:
+           |    - id: in
+           |      eventTimeColumn: event_time
+           |    query: >
+           |      SELECT
+           |        TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
+           |        symbol as symbol,
+           |        min(price) as `min`,
+           |        max(price) as `max`
+           |      FROM `in`
+           |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
+           |inputSlices:
+           |  in:
+           |    hash: ""
+           |    interval: "(-inf, inf)"
+           |    numRecords: 0
+           |datasetLayouts:
+           |  in:
+           |    metadataDir: /none
+           |    dataDir: $inputDataDir
+           |    checkpointsDir: /none
+           |    cacheDir: /none
+           |  out:
+           |    metadataDir: /none
+           |    dataDir: $outputDataDir
+           |    checkpointsDir: $outputCheckpointDir
+           |    cacheDir: /none
+           |datasetVocabs:
+           |  in:
+           |    systemTimeColumn: system_time
+           |    corruptRecordColumn: __corrupt_record__
+           |  out:
+           |    systemTimeColumn: system_time
+           |    corruptRecordColumn: __corrupt_record__
            |""".stripMargin
       )
 
@@ -159,7 +156,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(config.tasks(0))
+        val result = engineRunner.run(request)
 
         println(result.block)
 
@@ -190,7 +187,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(config.tasks(0))
+        val result = engineRunner.run(request)
 
         println(result.block)
 
@@ -215,7 +212,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(config.tasks(0))
+        val result = engineRunner.run(request)
 
         println(result.block)
 
@@ -239,53 +236,50 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
       val inputDataDir = tempDir.resolve("data", "in")
       val outputDataDir = tempDir.resolve("data", "out")
       val outputCheckpointDir = tempDir.resolve("checkpoints", "out")
-      val resultDir = tempDir.resolve("result")
 
-      val config = yaml.load[TransformConfig](
+      val request = yaml.load[ExecuteQueryRequest](
         s"""
-          |tasks:
-          |- datasetID: out
-          |  source:
-          |    inputs:
-          |      - id: in
-          |    transform:
-          |      engine: flink
-          |      watermarks:
-          |      - id: in
-          |        eventTimeColumn: event_time
-          |        maxLateBy: 1 day
-          |      query: >
-          |        SELECT
-          |          TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
-          |          symbol as symbol,
-          |          min(price) as `min`,
-          |          max(price) as `max`
-          |        FROM `in`
-          |        GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-          |  inputSlices:
-          |    in:
-          |      hash: ""
-          |      interval: "(-inf, inf)"
-          |      numRecords: 0
-          |  datasetLayouts:
-          |    in:
-          |      metadataDir: /none
-          |      dataDir: $inputDataDir
-          |      checkpointsDir: /none
-          |      cacheDir: /none
-          |    out:
-          |      metadataDir: /none
-          |      dataDir: $outputDataDir
-          |      checkpointsDir: $outputCheckpointDir
-          |      cacheDir: /none
-          |  datasetVocabs:
-          |    in:
-          |      systemTimeColumn: system_time
-          |      corruptRecordColumn: __corrupt_record__
-          |    out:
-          |      systemTimeColumn: system_time
-          |      corruptRecordColumn: __corrupt_record__
-          |  resultDir: $resultDir
+          |datasetID: out
+          |source:
+          |  inputs:
+          |    - id: in
+          |  transform:
+          |    engine: flink
+          |    watermarks:
+          |    - id: in
+          |      eventTimeColumn: event_time
+          |      maxLateBy: 1 day
+          |    query: >
+          |      SELECT
+          |        TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
+          |        symbol as symbol,
+          |        min(price) as `min`,
+          |        max(price) as `max`
+          |      FROM `in`
+          |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
+          |inputSlices:
+          |  in:
+          |    hash: ""
+          |    interval: "(-inf, inf)"
+          |    numRecords: 0
+          |datasetLayouts:
+          |  in:
+          |    metadataDir: /none
+          |    dataDir: $inputDataDir
+          |    checkpointsDir: /none
+          |    cacheDir: /none
+          |  out:
+          |    metadataDir: /none
+          |    dataDir: $outputDataDir
+          |    checkpointsDir: $outputCheckpointDir
+          |    cacheDir: /none
+          |datasetVocabs:
+          |  in:
+          |    systemTimeColumn: system_time
+          |    corruptRecordColumn: __corrupt_record__
+          |  out:
+          |    systemTimeColumn: system_time
+          |    corruptRecordColumn: __corrupt_record__
           |""".stripMargin
       )
 
@@ -309,7 +303,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(config.tasks(0))
+        val result = engineRunner.run(request)
 
         println(result.block)
 
@@ -337,7 +331,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(config.tasks(0))
+        val result = engineRunner.run(request)
 
         println(result.block)
 

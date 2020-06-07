@@ -9,7 +9,7 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.{TransformResult, TransformTaskConfig}
+import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, ExecuteQueryResult}
 import dev.kamu.core.utils.Clock
 import dev.kamu.core.utils.fs._
 import org.apache.flink.api.common.JobStatus
@@ -62,27 +62,27 @@ class Engine(
 ) {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  def executeQueryExtended(task: TransformTaskConfig): Unit = {
-    if (task.source.transformEngine != "flink")
+  def executeQueryExtended(request: ExecuteQueryRequest): ExecuteQueryResult = {
+    if (request.source.transformEngine != "flink")
       throw new RuntimeException(
-        s"Invalid engine: ${task.source.transformEngine}"
+        s"Invalid engine: ${request.source.transformEngine}"
       )
 
     val transform =
-      yaml.load[TransformKind.Flink](task.source.transform.toConfig)
+      yaml.load[TransformKind.Flink](request.source.transform.toConfig)
 
     val markersPath =
-      task.datasetLayouts(task.datasetID.toString).checkpointsDir
+      request.datasetLayouts(request.datasetID.toString).checkpointsDir
 
     val inputSlices =
       prepareInputSlices(
-        typedMap(task.inputSlices),
-        typedMap(task.datasetVocabs),
-        typedMap(task.datasetLayouts),
+        typedMap(request.inputSlices),
+        typedMap(request.datasetVocabs),
+        typedMap(request.datasetLayouts),
         markersPath
       )
 
-    val resultTable = executeQuery(task.datasetID, inputSlices, transform)
+    val resultTable = executeQuery(request.datasetID, inputSlices, transform)
 
     logger.info("Result schema:\n{}", resultTable.getSchema)
     val resultStream = resultTable.toAppendStream[Row]
@@ -99,8 +99,8 @@ class Engine(
     val avroStream =
       resultStream.map(r => avroConverter.convertRowToAvroRecord(r))
 
-    val dataFilePath = task
-      .datasetLayouts(task.datasetID.toString)
+    val dataFilePath = request
+      .datasetLayouts(request.datasetID.toString)
       .dataDir
       .resolve(
         systemClock
@@ -118,10 +118,10 @@ class Engine(
 
     processAvailableAndStopWithSavepoint(
       inputSlices,
-      task.datasetLayouts(task.datasetID.toString).checkpointsDir
+      request.datasetLayouts(request.datasetID.toString).checkpointsDir
     )
 
-    val stats = gatherStats(inputSlices, task.datasetID, resultStatsPath)
+    val stats = gatherStats(inputSlices, request.datasetID, resultStatsPath)
 
     // TODO: Compute hash, interval and num records
     val block = MetadataBlock(
@@ -130,12 +130,12 @@ class Engine(
       systemTime = systemClock.instant(),
       outputSlice = Some(
         DataSlice(
-          hash = stats(task.datasetID).hash,
+          hash = stats(request.datasetID).hash,
           interval = Interval.point(systemClock.instant()),
-          numRecords = stats(task.datasetID).numRecords
+          numRecords = stats(request.datasetID).numRecords
         )
       ),
-      inputSlices = task.source.inputs.map(
+      inputSlices = request.source.inputs.map(
         i =>
           inputSlices(i.id).dataSlice.copy(
             hash = stats(i.id).hash,
@@ -144,17 +144,12 @@ class Engine(
       )
     )
 
-    val transformResult = TransformResult(
+    ExecuteQueryResult(
       block = block,
       dataFileName =
         if (fileSystem.exists(dataFilePath)) Some(dataFilePath.getName)
         else None
     )
-
-    val resultPath = task.resultDir.resolve("result.yaml")
-    val outputStream = fileSystem.create(resultPath, false)
-    yaml.save(Manifest(transformResult), outputStream)
-    outputStream.close()
   }
 
   private def executeQuery(
