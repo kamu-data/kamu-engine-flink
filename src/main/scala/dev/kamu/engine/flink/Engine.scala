@@ -1,7 +1,9 @@
 package dev.kamu.engine.flink
 
+import java.io.File
 import java.sql.Timestamp
 import java.time.Instant
+import java.util.Scanner
 
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
@@ -43,7 +45,13 @@ import scala.sys.process.Process
 case class InputSlice(
   dataStream: DataStream[Row],
   dataSlice: DataSlice,
-  markerPath: Path
+  markerPath: Path,
+  statsPath: Path
+)
+
+case class SliceStats(
+  hash: String,
+  numRecords: Int
 )
 
 class Engine(
@@ -63,19 +71,25 @@ class Engine(
     val transform =
       yaml.load[TransformKind.Flink](task.source.transform.toConfig)
 
+    val markersPath =
+      task.datasetLayouts(task.datasetID.toString).checkpointsDir
+
     val inputSlices =
       prepareInputSlices(
         typedMap(task.inputSlices),
         typedMap(task.datasetVocabs),
         typedMap(task.datasetLayouts),
-        task.datasetLayouts(task.datasetID.toString).checkpointsDir
+        markersPath
       )
 
     val resultTable = executeQuery(task.datasetID, inputSlices, transform)
 
     logger.info("Result schema:\n{}", resultTable.getSchema)
     val resultStream = resultTable.toAppendStream[Row]
-    resultStream.print()
+
+    // Computes row count and data hash
+    val resultStatsPath = markersPath.resolve("output-stats")
+    resultStream.addSink(new StatsSink(resultStatsPath.toString))
 
     // Convert to Avro so we can then save in Parquet :(
     val avroSchema = SchemaConverter.convert(resultTable.getSchema)
@@ -102,10 +116,12 @@ class Engine(
       )
     )
 
-    val savepointPath = processAvailableAndStopWithSavepoint(
+    processAvailableAndStopWithSavepoint(
       inputSlices,
       task.datasetLayouts(task.datasetID.toString).checkpointsDir
     )
+
+    val stats = gatherStats(inputSlices, task.datasetID, resultStatsPath)
 
     // TODO: Compute hash, interval and num records
     val block = MetadataBlock(
@@ -114,12 +130,18 @@ class Engine(
       systemTime = systemClock.instant(),
       outputSlice = Some(
         DataSlice(
-          hash = "XXXXXXXXXXXXXX",
+          hash = stats(task.datasetID).hash,
           interval = Interval.point(systemClock.instant()),
-          numRecords = 0
+          numRecords = stats(task.datasetID).numRecords
         )
       ),
-      inputSlices = task.source.inputs.map(i => inputSlices(i.id).dataSlice)
+      inputSlices = task.source.inputs.map(
+        i =>
+          inputSlices(i.id).dataSlice.copy(
+            hash = stats(i.id).hash,
+            numRecords = stats(i.id).numRecords
+          )
+      )
     )
 
     val transformResult = TransformResult(
@@ -163,7 +185,6 @@ class Engine(
         .getFieldNames(slice.dataStream.dataType)
         .indexOf(event_time)
 
-      slice.dataStream.print()
       val stream = slice.dataStream.assignTimestampsAndWatermarks(
         BoundedOutOfOrderWatermark.forRow(
           _.getField(event_time_pos).asInstanceOf[Timestamp].getTime,
@@ -193,18 +214,8 @@ class Engine(
   private def processAvailableAndStopWithSavepoint(
     inputSlices: Map[DatasetID, InputSlice],
     checkpointDir: Path
-  ): Path = {
-    /*
-    val job = getLastSavepoint(checkpointDir) match {
-      case None =>
-        logger.info("Executing without savepoint")
-        env.executeAsync()
-      case Some(sp) =>
-        val cenv =
-          env.getJavaEnv.asInstanceOf[CustomLocalStreamExecutionEnvironment]
-        logger.info("Executing with savepoint: {}", sp)
-        cenv.executeFromSavepointAsync(sp.toString)
-    }*/
+  ): Unit = {
+    fileSystem.mkdirs(checkpointDir)
 
     val job = env.executeAsync()
 
@@ -231,10 +242,6 @@ class Engine(
         )
       }
 
-      fileSystem.mkdirs(checkpointDir)
-
-      //val savepointPath = job.stopWithSavepoint(false, checkpointDir.toString).get()
-
       logger.info("Self-canceling job {}", job.getJobID.toString)
       val out = Process(
         Seq(
@@ -247,23 +254,9 @@ class Engine(
       ).!!
 
       println(s"OUTPUT: $out")
-
-      val savepointPath = "."
-
-      logger.info("Savepoint produced at: {}", savepointPath)
-      new Path(savepointPath)
     } finally {
       inputSlices.values.foreach(i => fileSystem.delete(i.markerPath, false))
     }
-  }
-
-  private def getLastSavepoint(checkpointDir: Path): Option[Path] = {
-    if (fileSystem.exists(checkpointDir)) {
-      for (fs <- fileSystem.listStatus(checkpointDir)) {
-        return Some(fs.getPath)
-      }
-    }
-    None
   }
 
   private def prepareInputSlices(
@@ -296,6 +289,7 @@ class Engine(
     fileSystem.mkdirs(markersPath)
 
     val markerPath = markersPath.resolve(s"input-marker-$id")
+    val statsPath = markersPath.resolve(s"input-stats-$id")
 
     // TODO: use schema from metadata
     val stream =
@@ -305,11 +299,14 @@ class Engine(
         vocab
       )
 
-    // TODO: Compute real hash and count rows
+    // Computes hash and count rows
+    stream.addSink(new StatsSink(statsPath.toString))
+
     InputSlice(
       dataStream = stream,
-      dataSlice = slice.copy(hash = "XXXXXXXXXXXXX", numRecords = 0),
-      markerPath = markerPath
+      dataSlice = slice,
+      markerPath = markerPath,
+      statsPath = statsPath
     )
   }
 
@@ -382,6 +379,44 @@ class Engine(
   private def typedMap[T](m: Map[String, T]): Map[DatasetID, T] = {
     m.map {
       case (id, value) => (DatasetID(id), value)
+    }
+  }
+
+  private def gatherStats(
+    inputSlices: Map[DatasetID, InputSlice],
+    outputID: DatasetID,
+    outputStatsPath: Path
+  ): Map[DatasetID, SliceStats] = {
+    val pathMap = inputSlices.mapValues(_.statsPath) ++ Map(
+      outputID -> outputStatsPath
+    )
+
+    val stats = pathMap.mapValues(readStats).view.force
+
+    // Cleanup
+    pathMap.values.foreach(p => fileSystem.delete(p, false))
+
+    stats
+  }
+
+  private def readStats(path: Path): SliceStats = {
+    try {
+      val reader = new Scanner(new File(path.toString))
+
+      val sRowCount = reader.nextLine()
+      val hash = reader.nextLine()
+
+      reader.close()
+
+      SliceStats(
+        hash = hash,
+        numRecords = sRowCount.toInt
+      )
+    } catch {
+      case e: Exception =>
+        println(s"Error while reading stats file: $path $e")
+        logger.error(s"Error while reading stats file: $path", e)
+        throw e
     }
   }
 

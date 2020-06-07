@@ -89,35 +89,46 @@ class EngineRunner(
         val prevSavepoint = getPrevSavepoint(task)
         val savepointArgs = prevSavepoint.map(p => s"-s $p").getOrElse("")
 
-        val unix = new com.sun.security.auth.module.UnixSystem()
-        val chownCmd = s"chown -R ${unix.getUid}:${unix.getGid} " + volumeMap.values
-          .map(_.toString)
-          .mkString(" ")
-
-        val exitCode = dockerClient
-          .exec(
-            ExecArgs(),
-            jobManager.containerName,
-            Seq(
-              "bash",
-              "-c",
-              s"flink run $savepointArgs $engineJarInContainer; $chownCmd"
+        try {
+          val exitCode = dockerClient
+            .exec(
+              ExecArgs(),
+              jobManager.containerName,
+              Seq(
+                "bash",
+                "-c",
+                s"flink run $savepointArgs $engineJarInContainer"
+              )
             )
-          )
-          .!
+            .!
 
-        if (exitCode != 0)
-          throw new RuntimeException(
-            s"Engine run failed with exit code: $exitCode"
-          )
+          if (exitCode != 0)
+            throw new RuntimeException(
+              s"Engine run failed with exit code: $exitCode"
+            )
 
-        commitSavepoint(prevSavepoint)
+          commitSavepoint(prevSavepoint)
 
-        taskManager.kill()
-        jobManager.kill()
+        } finally {
+          val unix = new com.sun.security.auth.module.UnixSystem()
+          val chownCmd = s"chown -R ${unix.getUid}:${unix.getGid} " + volumeMap.values
+            .map(_.toString)
+            .mkString(" ")
 
-        taskManager.join()
-        jobManager.join()
+          dockerClient
+            .exec(
+              ExecArgs(),
+              jobManager.containerName,
+              Seq("bash", "-c", chownCmd)
+            )
+            .!
+
+          taskManager.kill()
+          jobManager.kill()
+
+          taskManager.join()
+          jobManager.join()
+        }
       }
     }
 
