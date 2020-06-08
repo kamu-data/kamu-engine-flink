@@ -1,6 +1,7 @@
 package dev.kamu.engine.flink
 
 import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+
 import pureconfig.generic.auto._
 import dev.kamu.core.utils.ManualClock
 import dev.kamu.core.utils.fs._
@@ -26,9 +27,8 @@ object EngineApp {
     if (!fileSystem.exists(requestPath))
       throw new RuntimeException(s"Could not find request config: $requestPath")
 
-    val inputStream = fileSystem.open(requestPath)
-    val request = yaml.load[Manifest[ExecuteQueryRequest]](inputStream).content
-    inputStream.close()
+    val request =
+      yaml.load[Manifest[ExecuteQueryRequest]](fileSystem, requestPath).content
 
     logger.info(s"Executing request: $request")
 
@@ -46,10 +46,7 @@ object EngineApp {
     val engine = new Engine(fileSystem, systemClock, env, tEnv)
     val result = engine.executeQueryExtended(request)
 
-    val outputStream = fileSystem.create(resultPath, false)
-    yaml.save(Manifest(result), outputStream)
-    outputStream.close()
-
+    yaml.save(Manifest(result), fileSystem, resultPath)
     logger.info(s"Done processing dataset: ${request.datasetID}")
 
     logger.info("Finished")

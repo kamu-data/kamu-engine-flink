@@ -74,6 +74,8 @@ class Engine(
     val markersPath =
       request.datasetLayouts(request.datasetID.toString).checkpointsDir
 
+    fileSystem.mkdirs(markersPath)
+
     val inputSlices =
       prepareInputSlices(
         typedMap(request.inputSlices),
@@ -89,7 +91,7 @@ class Engine(
 
     // Computes row count and data hash
     val resultStatsPath = markersPath.resolve("output-stats")
-    resultStream.addSink(new StatsSink(resultStatsPath.toString))
+    resultStream.addSink(new StatsSink(resultStatsPath.toUri.getPath))
 
     // Convert to Avro so we can then save in Parquet :(
     val avroSchema = SchemaConverter.convert(resultTable.getSchema)
@@ -112,7 +114,7 @@ class Engine(
     avroStream.addSink(
       new ParuqetSink(
         avroSchema.toString(),
-        dataFilePath.toString
+        dataFilePath.toUri.getPath
       )
     )
 
@@ -210,8 +212,6 @@ class Engine(
     inputSlices: Map[DatasetID, InputSlice],
     checkpointDir: Path
   ): Unit = {
-    fileSystem.mkdirs(checkpointDir)
-
     val job = env.executeAsync()
 
     def jobRunning(): Boolean = {
@@ -243,7 +243,7 @@ class Engine(
           "flink",
           "cancel",
           "-s",
-          checkpointDir.toString,
+          checkpointDir.toUri.getPath,
           job.getJobID.toString
         )
       ).!!
@@ -281,8 +281,6 @@ class Engine(
     layout: DatasetLayout,
     markersPath: Path
   ): InputSlice = {
-    fileSystem.mkdirs(markersPath)
-
     val markerPath = markersPath.resolve(s"input-marker-$id")
     val statsPath = markersPath.resolve(s"input-stats-$id")
 
@@ -295,7 +293,7 @@ class Engine(
       )
 
     // Computes hash and count rows
-    stream.addSink(new StatsSink(statsPath.toString))
+    stream.addSink(new StatsSink(statsPath.toUri.getPath))
 
     InputSlice(
       dataStream = stream,
@@ -396,7 +394,7 @@ class Engine(
 
   private def readStats(path: Path): SliceStats = {
     try {
-      val reader = new Scanner(new File(path.toString))
+      val reader = new Scanner(new File(path.toUri.getPath))
 
       val sRowCount = reader.nextLine()
       val hash = reader.nextLine()
@@ -427,13 +425,13 @@ class Engine(
     val messageType = MessageTypeParser.parseMessageType(schema.toString)
 
     val inputFormat = new ParquetRowInputFormat(
-      new FlinkPath(path.toString),
+      new FlinkPath(path.toUri.getPath),
       messageType
     )
 
     /*env.readFile[Row](
       inputFormat,
-      path.toString,
+      path.toUri.getPath,
       FileProcessingMode.PROCESS_CONTINUOUSLY,
       500
     )(inputFormat.getProducedType)
@@ -483,7 +481,7 @@ class Engine(
         monitoringMode,
         env.getParallelism,
         interval,
-        markerPath.toString
+        markerPath.toUri.getPath
       )
 
     //val reader = new CustomFileReaderOperator[T](inputFormat)
