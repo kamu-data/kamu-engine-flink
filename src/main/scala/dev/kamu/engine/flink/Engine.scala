@@ -192,8 +192,31 @@ class Engine(
       val table = tEnv
         .fromDataStream(stream, expressions: _*)
 
-      logger.info("Input {} schema:\n{}", inputID, table.getSchema)
+      logger.info(
+        "Registered input {} with schema:\n{}",
+        inputID,
+        table.getSchema
+      )
+
       tEnv.createTemporaryView(s"`$inputID`", table)
+
+      watermark.map(_.primaryKey).getOrElse(Vector.empty) match {
+        case Vector() =>
+        case Vector(pk) =>
+          tEnv.registerFunction(
+            inputID.toString,
+            table.createTemporalTableFunction(event_time, pk)
+          )
+          logger.info(
+            "Registered input {} as temporal table with PK: {}",
+            inputID,
+            pk
+          )
+        case _ =>
+          throw new NotImplementedError(
+            "Composite primary keys are not supported by Flink"
+          )
+      }
     }
 
     // Setup transform

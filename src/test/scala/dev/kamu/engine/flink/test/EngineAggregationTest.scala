@@ -3,18 +3,14 @@ package dev.kamu.engine.flink.test
 import java.sql.Timestamp
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
-import com.sksamuel.avro4s._
 import pureconfig.generic.auto._
-import dev.kamu.core.utils.fs._
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
+import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
-import org.apache.avro.generic.{GenericData, GenericRecord}
+import dev.kamu.core.utils.fs._
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.parquet.avro.{AvroParquetReader, AvroParquetWriter}
-import org.apache.parquet.hadoop.metadata.CompressionCodecName
+import org.apache.hadoop.fs.FileSystem
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Ticker(
@@ -38,49 +34,6 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
     val dt = LocalDateTime.of(2000, 1, d, h, m)
     val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
     Timestamp.from(zdt.toInstant)
-  }
-
-  def writeParquet[T: Encoder: Decoder](path: Path, data: Seq[T])(
-    implicit schemaFor: SchemaFor[T]
-  ): Unit = {
-    val avroSchema = AvroSchema[T]
-    val format = RecordFormat[T]
-
-    val records = data.map(format.to)
-
-    println(avroSchema.toString(true))
-
-    val writer = AvroParquetWriter
-      .builder[GenericRecord](path)
-      .withSchema(avroSchema)
-      .withDataModel(GenericData.get)
-      .withCompressionCodec(CompressionCodecName.SNAPPY)
-      .build()
-
-    records.foreach(writer.write)
-
-    writer.close()
-  }
-
-  def readParquet[T: Encoder: Decoder](path: Path)(
-    implicit schemaFor: SchemaFor[T]
-  ): List[T] = {
-    val format = RecordFormat[T]
-
-    val reader =
-      AvroParquetReader
-        .builder[GenericRecord](path)
-        .withDataModel(GenericData.get)
-        .build()
-
-    val records = Stream
-      .continually(reader.read)
-      .takeWhile(_ != null)
-      .map(format.from)
-      .toList
-
-    reader.close()
-    records
   }
 
   test("Tumbling window aggregation") {
@@ -138,8 +91,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
       )
 
       {
-        writeParquet(
-          tempDir.resolve(inputDataDir).resolve("1.parquet"),
+        ParquetHelpers.write(
+          inputDataDir.resolve("1.parquet"),
           Seq(
             Ticker(ts(1, 1), "A", 10),
             Ticker(ts(1, 1), "B", 20),
@@ -160,9 +113,9 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
 
         println(result.block)
 
-        val actual = readParquet[TickerSummary](
-          tempDir.resolve(outputDataDir).resolve(result.dataFileName.get)
-        ).sortBy(i => (i.event_time.getTime, i.symbol))
+        val actual = ParquetHelpers
+          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(1), "A", 10, 11),
@@ -173,8 +126,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
       }
 
       {
-        writeParquet(
-          tempDir.resolve(inputDataDir).resolve("2.parquet"),
+        ParquetHelpers.write(
+          inputDataDir.resolve("2.parquet"),
           Seq(
             Ticker(ts(4, 1), "A", 16),
             Ticker(ts(4, 1), "B", 26),
@@ -191,9 +144,9 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
 
         println(result.block)
 
-        val actual = readParquet[TickerSummary](
-          tempDir.resolve(outputDataDir).resolve(result.dataFileName.get)
-        ).sortBy(i => (i.event_time.getTime, i.symbol))
+        val actual = ParquetHelpers
+          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(3), "A", 14, 15),
@@ -204,8 +157,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
       }
 
       {
-        writeParquet(
-          tempDir.resolve(inputDataDir).resolve("3.parquet"),
+        ParquetHelpers.write(
+          inputDataDir.resolve("3.parquet"),
           Seq(
             Ticker(ts(6, 1), "A", 20),
             Ticker(ts(6, 1), "B", 30)
@@ -216,9 +169,9 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
 
         println(result.block)
 
-        val actual = readParquet[TickerSummary](
-          tempDir.resolve(outputDataDir).resolve(result.dataFileName.get)
-        ).sortBy(i => (i.event_time.getTime, i.symbol))
+        val actual = ParquetHelpers
+          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(5), "A", 18, 19),
@@ -284,8 +237,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
       )
 
       {
-        writeParquet(
-          tempDir.resolve(inputDataDir).resolve("1.parquet"),
+        ParquetHelpers.write(
+          inputDataDir.resolve("1.parquet"),
           Seq(
             Ticker(ts(1, 1), "A", 10),
             Ticker(ts(1, 1), "B", 20),
@@ -307,9 +260,9 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
 
         println(result.block)
 
-        val actual = readParquet[TickerSummary](
-          tempDir.resolve(outputDataDir).resolve(result.dataFileName.get)
-        ).sortBy(i => (i.event_time.getTime, i.symbol))
+        val actual = ParquetHelpers
+          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(1), "A", 10, 11),
@@ -318,8 +271,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
       }
 
       {
-        writeParquet(
-          tempDir.resolve(inputDataDir).resolve("2.parquet"),
+        ParquetHelpers.write(
+          inputDataDir.resolve("2.parquet"),
           Seq(
             Ticker(ts(1, 4), "A", 12), // Two days late and will be discarded
             Ticker(ts(4, 1), "A", 16),
@@ -335,9 +288,9 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
 
         println(result.block)
 
-        val actual = readParquet[TickerSummary](
-          tempDir.resolve(outputDataDir).resolve(result.dataFileName.get)
-        ).sortBy(i => (i.event_time.getTime, i.symbol))
+        val actual = ParquetHelpers
+          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(2), "A", 12, 13),

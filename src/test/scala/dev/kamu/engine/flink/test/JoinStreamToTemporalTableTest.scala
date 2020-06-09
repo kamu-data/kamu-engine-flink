@@ -6,7 +6,6 @@ import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.table.api.scala._
 import org.apache.flink.types.Row
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -101,7 +100,6 @@ class JoinStreamToTemporalTableTest
 
     val sink = StreamSink.stringSink()
     query.toAppendStream[Row].addSink(sink)
-    //query.toAppendStream[Row].print()
     env.execute()
 
     val actual = sink.collectStr().sorted
