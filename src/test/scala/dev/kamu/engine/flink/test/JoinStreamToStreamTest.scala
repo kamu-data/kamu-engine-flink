@@ -91,7 +91,6 @@ class JoinStreamToStreamTest
 
     val sink = StreamSink.stringSink()
     query.toAppendStream[Row].addSink(sink)
-    //query.toAppendStream[Row].print()
     env.execute()
 
     val actual = sink.collectStr().sorted
