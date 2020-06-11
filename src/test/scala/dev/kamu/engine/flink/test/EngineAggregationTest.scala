@@ -109,7 +109,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request)
+        val result = engineRunner.run(request, tempDir)
 
         println(result.block)
 
@@ -140,7 +140,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request)
+        val result = engineRunner.run(request, tempDir)
 
         println(result.block)
 
@@ -165,7 +165,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request)
+        val result = engineRunner.run(request, tempDir)
 
         println(result.block)
 
@@ -256,7 +256,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request)
+        val result = engineRunner.run(request, tempDir)
 
         println(result.block)
 
@@ -284,7 +284,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request)
+        val result = engineRunner.run(request, tempDir)
 
         println(result.block)
 

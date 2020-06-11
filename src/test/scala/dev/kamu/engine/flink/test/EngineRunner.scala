@@ -27,7 +27,8 @@ class EngineRunner(
   private val logger = LoggerFactory.getLogger(getClass)
 
   def run(
-    request: ExecuteQueryRequest
+    request: ExecuteQueryRequest,
+    workspaceDir: Path
   ): ExecuteQueryResult = {
     val engineJar = new Path(".")
       .resolve("target", "scala-2.12", "engine.flink.jar")
@@ -38,7 +39,7 @@ class EngineRunner(
     val inOutDirInContainer = new Path("/opt/engine/in-out")
     val engineJarInContainer = new Path("/opt/engine/bin/engine.flink.jar")
 
-    val volumeMap = toVolumeMap(request)
+    val volumeMap = Map(workspaceDir -> workspaceDir)
 
     Temp.withRandomTempDir(
       fileSystem,
@@ -166,12 +167,5 @@ class EngineRunner(
     logger.info("Deleting savepoint: {}", oldSavepoint)
 
     oldSavepoint.foreach(fileSystem.delete(_, true))
-  }
-
-  protected def toVolumeMap(request: ExecuteQueryRequest): Map[Path, Path] = {
-    request.datasetLayouts.values
-      .flatMap(l => List(l.checkpointsDir, l.dataDir))
-      .map(p => (p, p))
-      .toMap
   }
 }

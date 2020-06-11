@@ -145,7 +145,7 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(request)
+        val result = engineRunner.run(request, tempDir)
 
         println(result.block)
 
@@ -178,7 +178,7 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(request)
+        val result = engineRunner.run(request, tempDir)
 
         println(result.block)
 

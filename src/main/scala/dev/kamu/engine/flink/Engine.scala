@@ -221,10 +221,10 @@ class Engine(
 
     // Setup transform
     for (step <- transform.queries) {
-      tEnv.createTemporaryView(
-        s"`${step.alias.getOrElse(datasetID.toString)}`",
-        tEnv.sqlQuery(step.query)
-      )
+      val alias = step.alias.getOrElse(datasetID.toString)
+      val table = tEnv.sqlQuery(step.query)
+      tEnv.createTemporaryView(s"`$alias`", table)
+      //table.toAppendStream[Row].addSink(new SnitchSink(alias))
     }
 
     // Get result
@@ -314,6 +314,8 @@ class Engine(
         slice.interval,
         vocab
       )
+
+    //stream.addSink(new SnitchSink(id.toString))
 
     // Computes hash and count rows
     stream.addSink(new StatsSink(statsPath.toUri.getPath))

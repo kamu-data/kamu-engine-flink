@@ -52,7 +52,7 @@ class JoinStreamToStreamTest
         BoundedOutOfOrderWatermark
           .forTuple[(Timestamp, Int, Long)](
             0,
-            duration.Duration(1, duration.DAYS)
+            duration.Duration.Zero
           )
       )
       .toTable(tEnv, 'event_time.rowtime, 'order_id, 'quantity)
@@ -63,7 +63,7 @@ class JoinStreamToStreamTest
         BoundedOutOfOrderWatermark
           .forTuple[(Timestamp, Int, Long)](
             0,
-            duration.Duration(1, duration.DAYS)
+            duration.Duration.Zero
           )
       )
       .toTable(tEnv, 'event_time.rowtime, 'order_id, 'num_shipped)
@@ -121,8 +121,8 @@ class JoinStreamToStreamTest
     )
 
     val shipmentsData = Seq(
-      (ts(1), 1, 5L),
-      (ts(1), 1, 5L),
+      (ts(1), 1, 4L),
+      (ts(2), 1, 6L),
       (ts(2), 2, 120L),
       (ts(8), 3, 9L),
       (ts(11), 4, 50L),
@@ -173,10 +173,12 @@ class JoinStreamToStreamTest
       )
     tEnv.createTemporaryView("OrderShipments", orderShipments)
 
+    orderShipments.toAppendStream[Row].print("orderShipments")
+
     val shipmentStats = tEnv.sqlQuery(
       """
          SELECT
-           CAST(TUMBLE_START(order_time, INTERVAL '2' DAY) as DATE) as order_time,
+           CAST(TUMBLE_START(order_time, INTERVAL '1' DAY) as DATE) as order_time,
            order_id,
            count(*) as num_shipments,
            min(shipped_time) as first_shipment,
@@ -184,10 +186,12 @@ class JoinStreamToStreamTest
            min(num_ordered) as num_ordered,
            sum(num_shipped) as num_shipped_total
          FROM OrderShipments
-         GROUP BY TUMBLE(order_time, INTERVAL '2' DAY), order_id
+         GROUP BY TUMBLE(order_time, INTERVAL '1' DAY), order_id
       """
     )
     tEnv.createTemporaryView("ShipmentStats", shipmentStats)
+
+    shipmentStats.toAppendStream[Row].print("shipmentStats")
 
     val query = tEnv.sqlQuery(
       """
@@ -198,13 +202,14 @@ class JoinStreamToStreamTest
     )
 
     val sink = StreamSink.stringSink()
+    query.toAppendStream[Row].print("query")
     query.toAppendStream[Row].addSink(sink)
     env.execute()
 
     val actual = sink.collectStr().sorted
 
     val expected = List(
-      "2000-01-04,3,1,null,null,9,0",
+      "2000-01-05,3,1,null,null,9,0",
       "2000-01-10,4,1,2000-01-11,2000-01-11,110,50"
     ).sorted
 

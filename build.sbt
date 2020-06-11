@@ -112,7 +112,8 @@ val flinkDependencies = Seq(
   "org.apache.flink" %% "flink-scala" % flinkVersion % "provided",
   "org.apache.flink" %% "flink-streaming-scala" % flinkVersion % "provided",
   "org.apache.flink" %% "flink-table-api-scala-bridge" % flinkVersion % "provided",
-  "org.apache.flink" %% "flink-table-planner" % flinkVersion % "provided",
+  // TODO: Tests won't run without this ... are we using blink or not?
+  "org.apache.flink" %% "flink-table-planner" % flinkVersion % "test",
   "org.apache.flink" %% "flink-table-planner-blink" % flinkVersion % "provided",
   //"org.apache.flink" % "flink-csv" % flinkVersion % "provided",
   "org.apache.flink" % "flink-avro" % flinkVersion % "provided",
