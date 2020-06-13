@@ -161,7 +161,7 @@ class EngineJoinStreamToStreamTest
 
         val result = engineRunner.run(request, tempDir)
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 3
 
         val actual = ParquetHelpers
           .read[ShippedOrder](
@@ -194,7 +194,7 @@ class EngineJoinStreamToStreamTest
 
         val result = engineRunner.run(request, tempDir)
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 2
 
         val actual = ParquetHelpers
           .read[ShippedOrder](
@@ -330,7 +330,7 @@ class EngineJoinStreamToStreamTest
 
         val result = engineRunner.run(request, tempDir)
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 2
 
         val actual = ParquetHelpers
           .read[ShipmentStats](
@@ -464,7 +464,7 @@ class EngineJoinStreamToStreamTest
 
         val result = engineRunner.run(request, tempDir)
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 2
 
         val actual = ParquetHelpers
           .read[ShipmentStats](

@@ -142,7 +142,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
 
         val result = engineRunner.run(request, tempDir)
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 4
 
         val actual = ParquetHelpers
           .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
@@ -167,7 +167,7 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
 
         val result = engineRunner.run(request, tempDir)
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 2
 
         val actual = ParquetHelpers
           .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
