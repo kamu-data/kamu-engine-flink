@@ -168,6 +168,26 @@ class Engine(
 
       val event_time = watermark.map(_.eventTimeColumn).getOrElse("")
 
+      val stream = if (event_time.isEmpty) {
+        slice.dataStream
+      } else {
+        val event_time_pos = FieldInfoUtils
+          .getFieldNames(slice.dataStream.dataType)
+          .indexOf(event_time)
+
+        if (event_time_pos < 0)
+          throw new Exception(
+            s"Specified event time column not found: $event_time"
+          )
+
+        slice.dataStream.assignTimestampsAndWatermarks(
+          BoundedOutOfOrderWatermark.forRow(
+            _.getField(event_time_pos).asInstanceOf[Timestamp].getTime,
+            watermark.flatMap(_.maxLateBy).getOrElse(Duration.Zero)
+          )
+        )
+      }
+
       val columns = FieldInfoUtils
         .getFieldNames(slice.dataStream.dataType)
         .map({
@@ -177,17 +197,6 @@ class Engine(
 
       val expressions =
         ExpressionParser.parseExpressionList(columns.mkString(", ")).asScala
-
-      val event_time_pos = FieldInfoUtils
-        .getFieldNames(slice.dataStream.dataType)
-        .indexOf(event_time)
-
-      val stream = slice.dataStream.assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark.forRow(
-          _.getField(event_time_pos).asInstanceOf[Timestamp].getTime,
-          watermark.flatMap(_.maxLateBy).getOrElse(Duration.Zero)
-        )
-      )
 
       val table = tEnv
         .fromDataStream(stream, expressions: _*)
@@ -505,12 +514,12 @@ class Engine(
         inputFormat,
         monitoringMode,
         env.getParallelism,
-        interval,
-        markerPath.toUri.getPath
+        interval
       )
 
-    //val reader = new CustomFileReaderOperator[T](inputFormat)
-    val reader = new ContinuousFileReaderOperator[T](inputFormat)
+    val reader =
+      new CustomFileReaderOperator[T](inputFormat, markerPath.toUri.getPath)
+    //val reader = new ContinuousFileReaderOperator[T](inputFormat)
 
     val source = env.getJavaEnv
       .addSource(monitoringFunction, sourceName)

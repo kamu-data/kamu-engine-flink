@@ -26,20 +26,31 @@ class ParuqetSink(avroSchemaString: String, path: String)
   @transient private lazy val rows: ArrayBuffer[GenericRecord] =
     ArrayBuffer.empty
 
+  @transient private var flushed: Boolean = false
+
   override def invoke(
     value: GenericRecord,
     context: SinkFunction.Context[_]
   ): Unit = {
+    if (flushed)
+      throw new RuntimeException(
+        "Attempting to append row after sink was already flushed"
+      )
     rows.append(value)
   }
 
   private def flush(): Unit = {
+    if (flushed)
+      throw new RuntimeException("Attempting to flush sink twice")
+
+    flushed = true
+
     if (rows.isEmpty) {
       logger.info("No data on flush")
       return
     }
 
-    logger.info("Flushing the parquet sink")
+    logger.info(s"Flushing the parquet sink (${rows.size} rows)")
 
     val avroSchema = new Schema.Parser().parse(avroSchemaString)
 
