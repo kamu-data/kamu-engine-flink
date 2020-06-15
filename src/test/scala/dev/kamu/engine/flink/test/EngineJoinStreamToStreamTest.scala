@@ -15,18 +15,21 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Order(
+  system_time: Timestamp,
   event_time: Timestamp,
   order_id: Long,
   quantity: Long
 )
 
 case class Shipment(
+  system_time: Timestamp,
   event_time: Timestamp,
   order_id: Long,
   num_shipped: Long
 )
 
 case class ShippedOrder(
+  system_time: Timestamp,
   order_time: Timestamp,
   order_id: Long,
   order_quantity: Long,
@@ -35,6 +38,7 @@ case class ShippedOrder(
 )
 
 case class ShipmentStats(
+  system_time: Timestamp,
   order_time: Timestamp,
   order_id: Long,
   num_shipments: Long,
@@ -84,11 +88,6 @@ class EngineJoinStreamToStreamTest
            |    - id: shipments
            |  transform:
            |    engine: flink
-           |    watermarks:
-           |    - id: orders
-           |      eventTimeColumn: event_time
-           |    - id: shipments
-           |      eventTimeColumn: event_time
            |    query: >
            |      SELECT
            |        o.event_time as order_time,
@@ -96,11 +95,11 @@ class EngineJoinStreamToStreamTest
            |        o.quantity as order_quantity,
            |        CAST(s.event_time as TIMESTAMP) as shipped_time,
            |        COALESCE(s.num_shipped, 0) as shipped_quantity
-           |      FROM 
+           |      FROM
            |        orders as o
            |      LEFT JOIN shipments as s
            |      ON
-           |        o.order_id = s.order_id 
+           |        o.order_id = s.order_id
            |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
            |inputSlices:
            |  orders:
@@ -128,15 +127,10 @@ class EngineJoinStreamToStreamTest
            |    checkpointsDir: ${shippedOrdersLayout.checkpointsDir}
            |    cacheDir: /none
            |datasetVocabs:
-           |  orders:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  shipments:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |  orders: {}
+           |  shipments: {}
            |  shipped_orders:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |    eventTimeColumn: order_time
            |""".stripMargin
       )
 
@@ -144,22 +138,22 @@ class EngineJoinStreamToStreamTest
         ParquetHelpers.write(
           ordersLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Order(ts(1), 1, 10),
-            Order(ts(1), 2, 120),
-            Order(ts(5), 3, 9)
+            Order(ts(6), ts(1), 1, 10),
+            Order(ts(6), ts(1), 2, 120),
+            Order(ts(6), ts(5), 3, 9)
           )
         )
 
         ParquetHelpers.write(
           shipmentsLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Shipment(ts(1), 1, 4),
-            Shipment(ts(2), 1, 6),
-            Shipment(ts(2), 2, 120)
+            Shipment(ts(3), ts(1), 1, 4),
+            Shipment(ts(3), ts(2), 1, 6),
+            Shipment(ts(3), ts(2), 2, 120)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(10))
 
         result.block.outputSlice.get.numRecords shouldEqual 3
 
@@ -170,9 +164,9 @@ class EngineJoinStreamToStreamTest
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
-          ShippedOrder(ts(1), 1, 10, Some(ts(1)), 4),
-          ShippedOrder(ts(1), 1, 10, Some(ts(2)), 6),
-          ShippedOrder(ts(1), 2, 120, Some(ts(2)), 120)
+          ShippedOrder(ts(10), ts(1), 1, 10, Some(ts(1)), 4),
+          ShippedOrder(ts(10), ts(1), 1, 10, Some(ts(2)), 6),
+          ShippedOrder(ts(10), ts(1), 2, 120, Some(ts(2)), 120)
         )
       }
 
@@ -180,19 +174,19 @@ class EngineJoinStreamToStreamTest
         ParquetHelpers.write(
           ordersLayout.dataDir.resolve("2.parquet"),
           Seq(
-            Order(ts(10), 4, 110)
+            Order(ts(11), ts(10), 4, 110)
           )
         )
 
         ParquetHelpers.write(
           shipmentsLayout.dataDir.resolve("2.parquet"),
           Seq(
-            Shipment(ts(8), 3, 9),
-            Shipment(ts(11), 4, 110)
+            Shipment(ts(12), ts(8), 3, 9),
+            Shipment(ts(12), ts(11), 4, 110)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(20))
 
         result.block.outputSlice.get.numRecords shouldEqual 2
 
@@ -203,8 +197,8 @@ class EngineJoinStreamToStreamTest
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
-          ShippedOrder(ts(5), 3, 9, None, 0),
-          ShippedOrder(ts(10), 4, 110, Some(ts(11)), 110)
+          ShippedOrder(ts(20), ts(5), 3, 9, None, 0),
+          ShippedOrder(ts(20), ts(10), 4, 110, Some(ts(11)), 110)
         )
       }
     }
@@ -228,11 +222,6 @@ class EngineJoinStreamToStreamTest
            |    - id: shipments
            |  transform:
            |    engine: flink
-           |    watermarks:
-           |    - id: orders
-           |      eventTimeColumn: event_time
-           |    - id: shipments
-           |      eventTimeColumn: event_time
            |    queries:
            |    - alias: order_shipments
            |      query: >
@@ -242,14 +231,14 @@ class EngineJoinStreamToStreamTest
            |          o.quantity as order_quantity,
            |          CAST(s.event_time as TIMESTAMP) as shipped_time,
            |          COALESCE(s.num_shipped, 0) as shipped_quantity
-           |        FROM 
+           |        FROM
            |          orders as o
            |        LEFT JOIN shipments as s
            |        ON
-           |          o.order_id = s.order_id 
+           |          o.order_id = s.order_id
            |          AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
            |    - alias: shipment_stats
-           |      query: >        
+           |      query: >
            |        SELECT
            |          TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
            |          order_id,
@@ -291,15 +280,10 @@ class EngineJoinStreamToStreamTest
            |    checkpointsDir: ${lateOrdersLayout.checkpointsDir}
            |    cacheDir: /none
            |datasetVocabs:
-           |  orders:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  shipments:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |  orders: {}
+           |  shipments: {}
            |  late_orders:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |    eventTimeColumn: order_time
            |""".stripMargin
       )
 
@@ -307,28 +291,28 @@ class EngineJoinStreamToStreamTest
         ParquetHelpers.write(
           ordersLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Order(ts(1), 1, 10),
-            Order(ts(1), 2, 120),
-            Order(ts(5), 3, 9),
-            Order(ts(10), 4, 110),
-            Order(ts(15), 5, 10)
+            Order(ts(16), ts(1), 1, 10),
+            Order(ts(16), ts(1), 2, 120),
+            Order(ts(16), ts(5), 3, 9),
+            Order(ts(16), ts(10), 4, 110),
+            Order(ts(16), ts(15), 5, 10)
           )
         )
 
         ParquetHelpers.write(
           shipmentsLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Shipment(ts(1), 1, 4),
-            Shipment(ts(2), 1, 6),
-            Shipment(ts(2), 2, 120),
-            Shipment(ts(6), 3, 5),
-            Shipment(ts(11), 4, 50),
-            Shipment(ts(13), 4, 60),
-            Shipment(ts(16), 5, 10)
+            Shipment(ts(17), ts(1), 1, 4),
+            Shipment(ts(17), ts(2), 1, 6),
+            Shipment(ts(17), ts(2), 2, 120),
+            Shipment(ts(17), ts(6), 3, 5),
+            Shipment(ts(17), ts(11), 4, 50),
+            Shipment(ts(17), ts(13), 4, 60),
+            Shipment(ts(17), ts(16), 5, 10)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(20))
 
         result.block.outputSlice.get.numRecords shouldEqual 2
 
@@ -339,8 +323,17 @@ class EngineJoinStreamToStreamTest
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
-          ShipmentStats(ts(5), 3, 1, Some(ts(6)), Some(ts(6)), 9, 5),
-          ShipmentStats(ts(10), 4, 1, Some(ts(11)), Some(ts(11)), 110, 50)
+          ShipmentStats(ts(20), ts(5), 3, 1, Some(ts(6)), Some(ts(6)), 9, 5),
+          ShipmentStats(
+            ts(20),
+            ts(10),
+            4,
+            1,
+            Some(ts(11)),
+            Some(ts(11)),
+            110,
+            50
+          )
         )
       }
     }
@@ -364,11 +357,6 @@ class EngineJoinStreamToStreamTest
            |    - id: shipments
            |  transform:
            |    engine: flink
-           |    watermarks:
-           |    - id: orders
-           |      eventTimeColumn: event_time
-           |    - id: shipments
-           |      eventTimeColumn: event_time
            |    queries:
            |    - alias: order_shipments
            |      query: >
@@ -378,14 +366,14 @@ class EngineJoinStreamToStreamTest
            |          o.quantity as order_quantity,
            |          CAST(s.event_time as TIMESTAMP) as shipped_time,
            |          COALESCE(s.num_shipped, 0) as shipped_quantity
-           |        FROM 
+           |        FROM
            |          orders as o
            |        LEFT JOIN shipments as s
            |        ON
-           |          o.order_id = s.order_id 
+           |          o.order_id = s.order_id
            |          AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
            |    - alias: shipment_stats
-           |      query: >        
+           |      query: >
            |        SELECT
            |          TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
            |          order_id,
@@ -427,15 +415,10 @@ class EngineJoinStreamToStreamTest
            |    checkpointsDir: ${lateOrdersLayout.checkpointsDir}
            |    cacheDir: /none
            |datasetVocabs:
-           |  orders:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  shipments:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |  orders: {}
+           |  shipments: {}
            |  late_orders:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |    eventTimeColumn: order_time
            |""".stripMargin
       )
 
@@ -443,26 +426,26 @@ class EngineJoinStreamToStreamTest
         ParquetHelpers.write(
           ordersLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Order(ts(1), 1, 10),
-            Order(ts(1), 2, 120),
-            Order(ts(5), 3, 9),
-            Order(ts(10), 4, 110)
+            Order(ts(11), ts(1), 1, 10),
+            Order(ts(11), ts(1), 2, 120),
+            Order(ts(11), ts(5), 3, 9),
+            Order(ts(11), ts(10), 4, 110)
           )
         )
 
         ParquetHelpers.write(
           shipmentsLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Shipment(ts(1), 1, 4),
-            Shipment(ts(2), 1, 6),
-            Shipment(ts(2), 2, 120),
-            Shipment(ts(8), 3, 9),
-            Shipment(ts(11), 4, 50),
-            Shipment(ts(13), 4, 60)
+            Shipment(ts(14), ts(1), 1, 4),
+            Shipment(ts(14), ts(2), 1, 6),
+            Shipment(ts(14), ts(2), 2, 120),
+            Shipment(ts(14), ts(8), 3, 9),
+            Shipment(ts(14), ts(11), 4, 50),
+            Shipment(ts(14), ts(13), 4, 60)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(20))
 
         result.block.outputSlice.get.numRecords shouldEqual 2
 
@@ -473,8 +456,17 @@ class EngineJoinStreamToStreamTest
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
-          ShipmentStats(ts(5), 3, 1, None, None, 9, 0),
-          ShipmentStats(ts(10), 4, 1, Some(ts(11)), Some(ts(11)), 110, 50)
+          ShipmentStats(ts(20), ts(5), 3, 1, None, None, 9, 0),
+          ShipmentStats(
+            ts(20),
+            ts(10),
+            4,
+            1,
+            Some(ts(11)),
+            Some(ts(11)),
+            110,
+            50
+          )
         )
       }
     }

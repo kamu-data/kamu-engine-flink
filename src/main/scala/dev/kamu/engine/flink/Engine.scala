@@ -84,7 +84,12 @@ class Engine(
         markersPath
       )
 
-    val resultTable = executeQuery(request.datasetID, inputSlices, transform)
+    val resultTable = executeQuery(
+      request.datasetID,
+      inputSlices,
+      typedMap(request.datasetVocabs),
+      transform
+    )
 
     logger.info("Result schema:\n{}", resultTable.getSchema)
     val resultStream = resultTable.toAppendStream[Row]
@@ -157,6 +162,7 @@ class Engine(
   private def executeQuery(
     datasetID: DatasetID,
     inputSlices: Map[DatasetID, InputSlice],
+    datasetVocabs: Map[DatasetID, DatasetVocabulary],
     transform: TransformKind.Flink
   ): Table = {
     // Prepare watermarks
@@ -164,35 +170,31 @@ class Engine(
 
     // Setup inputs
     for ((inputID, slice) <- inputSlices) {
+      val inputVocab = datasetVocabs(inputID).withDefaults()
       val watermark = watermarks.get(inputID)
 
-      val event_time = watermark.map(_.eventTimeColumn).getOrElse("")
+      val eventTimeColumn = inputVocab.eventTimeColumn.get
+      val eventTimePos = FieldInfoUtils
+        .getFieldNames(slice.dataStream.dataType)
+        .indexOf(eventTimeColumn)
 
-      val stream = if (event_time.isEmpty) {
-        slice.dataStream
-      } else {
-        val event_time_pos = FieldInfoUtils
-          .getFieldNames(slice.dataStream.dataType)
-          .indexOf(event_time)
-
-        if (event_time_pos < 0)
-          throw new Exception(
-            s"Specified event time column not found: $event_time"
-          )
-
-        slice.dataStream.assignTimestampsAndWatermarks(
-          BoundedOutOfOrderWatermark.forRow(
-            _.getField(event_time_pos).asInstanceOf[Timestamp].getTime,
-            watermark.flatMap(_.maxLateBy).getOrElse(Duration.Zero)
-          )
+      if (eventTimePos < 0)
+        throw new Exception(
+          s"Event time column not found: $eventTimeColumn"
         )
-      }
+
+      val stream = slice.dataStream.assignTimestampsAndWatermarks(
+        BoundedOutOfOrderWatermark.forRow(
+          _.getField(eventTimePos).asInstanceOf[Timestamp].getTime,
+          watermark.flatMap(_.maxLateBy).getOrElse(Duration.Zero)
+        )
+      )
 
       val columns = FieldInfoUtils
         .getFieldNames(slice.dataStream.dataType)
         .map({
-          case `event_time` => s"$event_time.rowtime"
-          case other        => other
+          case `eventTimeColumn` => s"$eventTimeColumn.rowtime"
+          case other             => other
         })
 
       val expressions =
@@ -200,6 +202,7 @@ class Engine(
 
       val table = tEnv
         .fromDataStream(stream, expressions: _*)
+        .dropColumns(inputVocab.systemTimeColumn.get)
 
       logger.info(
         "Registered input {} with schema:\n{}",
@@ -214,7 +217,7 @@ class Engine(
         case Vector(pk) =>
           tEnv.registerFunction(
             inputID.toString,
-            table.createTemporalTableFunction(event_time, pk)
+            table.createTemporalTableFunction(eventTimeColumn, pk)
           )
           logger.info(
             "Registered input {} as temporal table with PK: {}",
@@ -237,7 +240,30 @@ class Engine(
     }
 
     // Get result
-    tEnv.sqlQuery(s"SELECT * FROM `$datasetID`")
+    val result = tEnv.sqlQuery(s"SELECT * FROM `$datasetID`")
+
+    val resultVocab = datasetVocabs(datasetID).withDefaults()
+
+    if (result.getSchema
+          .getTableColumn(resultVocab.systemTimeColumn.get)
+          .isPresent)
+      throw new Exception(
+        s"Transformed data contains a column that conflicts with the system column name, " +
+          s"you should either rename the data column or configure the dataset vocabulary " +
+          s"to use a different name: ${resultVocab.systemTimeColumn.get}"
+      )
+
+    if (!result.getSchema
+          .getTableColumn(resultVocab.eventTimeColumn.get)
+          .isPresent())
+      throw new Exception(
+        s"Event time column ${resultVocab.eventTimeColumn.get} was not found amongst: " +
+          result.getSchema.getTableColumns.asScala.map(_.getName).mkString(", ")
+      )
+
+    tEnv.sqlQuery(
+      s"SELECT CAST('${systemClock.timestamp()}' as TIMESTAMP) as `system_time`, * FROM `$datasetID`"
+    )
   }
 
   private def processAvailableAndStopWithSavepoint(
@@ -298,7 +324,7 @@ class Engine(
           prepareInputSlice(
             id,
             slice,
-            inputVocabs(id),
+            inputVocabs(id).withDefaults(),
             inputLayouts(id),
             markersPath
           )
@@ -349,7 +375,7 @@ class Engine(
         stream
       case _ =>
         val schema = stream.dataType.asInstanceOf[RowTypeInfo]
-        val systemTimeColumn = schema.getFieldIndex(vocab.systemTimeColumn)
+        val systemTimeColumn = schema.getFieldIndex(vocab.systemTimeColumn.get)
 
         val dfLower = interval.lowerBound match {
           case Unbound() =>

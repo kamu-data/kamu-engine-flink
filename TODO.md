@@ -1,5 +1,7 @@
 # TODO
 
+- solve event_time sorting
+- solve idle source watermarking
 - spark derivative still writes part files !
 - ensure system_time
-- solve event_time sorting
+- restructure watermarks section

@@ -1,7 +1,8 @@
 package dev.kamu.engine.flink
 
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+import java.time.Instant
 
+import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import pureconfig.generic.auto._
 import dev.kamu.core.utils.ManualClock
 import dev.kamu.core.utils.fs._
@@ -40,7 +41,12 @@ object EngineApp {
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
     env.setParallelism(1)
 
-    systemClock.advance()
+    val timeOverride = sys.env.get("KAMU_SYSTEM_TIME").map(Instant.parse)
+    if (timeOverride.isEmpty)
+      systemClock.advance()
+    else
+      systemClock.set(timeOverride.get)
+
     logger.info(s"Processing dataset: ${request.datasetID}")
 
     val engine = new Engine(fileSystem, systemClock, env, tEnv)

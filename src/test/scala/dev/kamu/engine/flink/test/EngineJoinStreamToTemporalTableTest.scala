@@ -15,12 +15,14 @@ import org.apache.hadoop.fs.{FileSystem, Path}
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class StocksOwned(
+  system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   volume: Int
 )
 
 case class StocksOwnedWithValue(
+  system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   volume: Int,
@@ -69,10 +71,7 @@ class EngineJoinStreamToTemporalTableTest
            |  transform:
            |    engine: flink
            |    watermarks:
-           |    - id: tickers
-           |      eventTimeColumn: event_time
            |    - id: stocks.owned
-           |      eventTimeColumn: event_time
            |      primaryKey:
            |      - symbol
            |    query: >
@@ -112,15 +111,9 @@ class EngineJoinStreamToTemporalTableTest
            |    checkpointsDir: ${currentValueLayout.checkpointsDir}
            |    cacheDir: /none
            |datasetVocabs:
-           |  tickers:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  stocks.owned:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  stocks.current-value:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |  tickers: {}
+           |  stocks.owned: {}
+           |  stocks.current-value: {}
            |""".stripMargin
       )
 
@@ -128,26 +121,26 @@ class EngineJoinStreamToTemporalTableTest
         ParquetHelpers.write(
           tickersLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Ticker(ts(1), "A", 10),
-            Ticker(ts(1), "B", 20),
-            Ticker(ts(2), "A", 10),
-            Ticker(ts(2), "B", 20),
-            Ticker(ts(3), "A", 12),
-            Ticker(ts(3), "B", 22),
-            Ticker(ts(4), "A", 14),
-            Ticker(ts(4), "B", 24)
+            Ticker(ts(5), ts(1), "A", 10),
+            Ticker(ts(5), ts(1), "B", 20),
+            Ticker(ts(5), ts(2), "A", 10),
+            Ticker(ts(5), ts(2), "B", 20),
+            Ticker(ts(5), ts(3), "A", 12),
+            Ticker(ts(5), ts(3), "B", 22),
+            Ticker(ts(5), ts(4), "A", 14),
+            Ticker(ts(5), ts(4), "B", 24)
           )
         )
 
         ParquetHelpers.write(
           stocksOwnedLayout.dataDir.resolve("1.parquet"),
           Seq(
-            StocksOwned(ts(2), "A", 100),
-            StocksOwned(ts(3), "B", 200)
+            StocksOwned(ts(4), ts(2), "A", 100),
+            StocksOwned(ts(4), ts(3), "B", 200)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(10))
 
         result.block.outputSlice.get.numRecords shouldEqual 2
 
@@ -158,8 +151,8 @@ class EngineJoinStreamToTemporalTableTest
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          StocksOwnedWithValue(ts(2), "A", 100, 10, 1000),
-          StocksOwnedWithValue(ts(3), "A", 100, 12, 1200)
+          StocksOwnedWithValue(ts(10), ts(2), "A", 100, 10, 1000),
+          StocksOwnedWithValue(ts(10), ts(3), "A", 100, 12, 1200)
           //StocksOwnedWithValue(ts(3), "B", 200, 22, 4400) ????
         )
       }
@@ -168,19 +161,19 @@ class EngineJoinStreamToTemporalTableTest
         ParquetHelpers.write(
           tickersLayout.dataDir.resolve("2.parquet"),
           Seq(
-            Ticker(ts(5), "A", 15),
-            Ticker(ts(5), "B", 25)
+            Ticker(ts(6), ts(5), "A", 15),
+            Ticker(ts(6), ts(5), "B", 25)
           )
         )
 
         ParquetHelpers.write(
           stocksOwnedLayout.dataDir.resolve("2.parquet"),
           Seq(
-            StocksOwned(ts(4), "B", 250)
+            StocksOwned(ts(5), ts(4), "B", 250)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(20))
 
         result.block.outputSlice.get.numRecords shouldEqual 3
 
@@ -191,9 +184,9 @@ class EngineJoinStreamToTemporalTableTest
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          StocksOwnedWithValue(ts(3), "B", 200, 22, 4400), // !!!???
-          StocksOwnedWithValue(ts(4), "A", 100, 14, 1400),
-          StocksOwnedWithValue(ts(4), "B", 250, 24, 6000)
+          StocksOwnedWithValue(ts(20), ts(3), "B", 200, 22, 4400), // !!!???
+          StocksOwnedWithValue(ts(20), ts(4), "A", 100, 14, 1400),
+          StocksOwnedWithValue(ts(20), ts(4), "B", 250, 24, 6000)
         )
       }
     }
@@ -218,10 +211,7 @@ class EngineJoinStreamToTemporalTableTest
            |  transform:
            |    engine: flink
            |    watermarks:
-           |    - id: tickers
-           |      eventTimeColumn: event_time
            |    - id: stocks.owned
-           |      eventTimeColumn: event_time
            |      primaryKey:
            |      - symbol
            |    query: >
@@ -261,15 +251,9 @@ class EngineJoinStreamToTemporalTableTest
            |    checkpointsDir: ${currentValueLayout.checkpointsDir}
            |    cacheDir: /none
            |datasetVocabs:
-           |  tickers:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  stocks.owned:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  stocks.current-value:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |  tickers: {}
+           |  stocks.owned: {}
+           |  stocks.current-value: {}
            |""".stripMargin
       )
 
@@ -277,22 +261,22 @@ class EngineJoinStreamToTemporalTableTest
         ParquetHelpers.write(
           tickersLayout.dataDir.resolve("1.parquet"),
           Seq(
-            Ticker(ts(1), "A", 1),
-            Ticker(ts(2), "A", 2),
-            Ticker(ts(3), "A", 3),
-            Ticker(ts(4), "A", 4),
-            Ticker(ts(5), "A", 5)
+            Ticker(ts(6), ts(1), "A", 1),
+            Ticker(ts(6), ts(2), "A", 2),
+            Ticker(ts(6), ts(3), "A", 3),
+            Ticker(ts(6), ts(4), "A", 4),
+            Ticker(ts(6), ts(5), "A", 5)
           )
         )
 
         ParquetHelpers.write(
           stocksOwnedLayout.dataDir.resolve("1.parquet"),
           Seq(
-            StocksOwned(ts(3), "A", 100)
+            StocksOwned(ts(4), ts(3), "A", 100)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(10))
 
         result.block.outputSlice.get.numRecords shouldEqual 3
 
@@ -303,9 +287,9 @@ class EngineJoinStreamToTemporalTableTest
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          StocksOwnedWithValue(ts(3), "A", 100, 3, 300),
-          StocksOwnedWithValue(ts(4), "A", 100, 4, 400),
-          StocksOwnedWithValue(ts(5), "A", 100, 5, 500)
+          StocksOwnedWithValue(ts(10), ts(3), "A", 100, 3, 300),
+          StocksOwnedWithValue(ts(10), ts(4), "A", 100, 4, 400),
+          StocksOwnedWithValue(ts(10), ts(5), "A", 100, 5, 500)
         )
       }
     }

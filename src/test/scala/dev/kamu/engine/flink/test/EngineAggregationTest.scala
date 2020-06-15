@@ -14,12 +14,14 @@ import org.apache.hadoop.fs.FileSystem
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Ticker(
+  system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   price: Int
 )
 
 case class TickerSummary(
+  system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   min: Int,
@@ -53,9 +55,6 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
            |    - id: in
            |  transform:
            |    engine: flink
-           |    watermarks:
-           |    - id: in
-           |      eventTimeColumn: event_time
            |    query: >
            |      SELECT
            |        TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
@@ -81,12 +80,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
            |    checkpointsDir: $outputCheckpointDir
            |    cacheDir: /none
            |datasetVocabs:
-           |  in:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
-           |  out:
-           |    systemTimeColumn: system_time
-           |    corruptRecordColumn: __corrupt_record__
+           |  in: {}
+           |  out: {}
            |""".stripMargin
       )
 
@@ -94,22 +89,22 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
         ParquetHelpers.write(
           inputDataDir.resolve("1.parquet"),
           Seq(
-            Ticker(ts(1, 1), "A", 10),
-            Ticker(ts(1, 1), "B", 20),
-            Ticker(ts(1, 2), "A", 11),
-            Ticker(ts(1, 2), "B", 21),
-            Ticker(ts(2, 1), "A", 12),
-            Ticker(ts(2, 1), "B", 22),
-            Ticker(ts(2, 2), "A", 13),
-            Ticker(ts(2, 2), "B", 23),
-            Ticker(ts(3, 1), "A", 14),
-            Ticker(ts(3, 1), "B", 24),
-            Ticker(ts(3, 2), "A", 15),
-            Ticker(ts(3, 2), "B", 25)
+            Ticker(ts(5), ts(1, 1), "A", 10),
+            Ticker(ts(5), ts(1, 1), "B", 20),
+            Ticker(ts(5), ts(1, 2), "A", 11),
+            Ticker(ts(5), ts(1, 2), "B", 21),
+            Ticker(ts(5), ts(2, 1), "A", 12),
+            Ticker(ts(5), ts(2, 1), "B", 22),
+            Ticker(ts(5), ts(2, 2), "A", 13),
+            Ticker(ts(5), ts(2, 2), "B", 23),
+            Ticker(ts(5), ts(3, 1), "A", 14),
+            Ticker(ts(5), ts(3, 1), "B", 24),
+            Ticker(ts(5), ts(3, 2), "A", 15),
+            Ticker(ts(5), ts(3, 2), "B", 25)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(10))
 
         println(result.block)
 
@@ -118,10 +113,10 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          TickerSummary(ts(1), "A", 10, 11),
-          TickerSummary(ts(1), "B", 20, 21),
-          TickerSummary(ts(2), "A", 12, 13),
-          TickerSummary(ts(2), "B", 22, 23)
+          TickerSummary(ts(10), ts(1), "A", 10, 11),
+          TickerSummary(ts(10), ts(1), "B", 20, 21),
+          TickerSummary(ts(10), ts(2), "A", 12, 13),
+          TickerSummary(ts(10), ts(2), "B", 22, 23)
         )
       }
 
@@ -129,18 +124,18 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
         ParquetHelpers.write(
           inputDataDir.resolve("2.parquet"),
           Seq(
-            Ticker(ts(4, 1), "A", 16),
-            Ticker(ts(4, 1), "B", 26),
-            Ticker(ts(4, 2), "A", 17),
-            Ticker(ts(4, 2), "B", 27),
-            Ticker(ts(5, 1), "A", 18),
-            Ticker(ts(5, 1), "B", 28),
-            Ticker(ts(5, 2), "A", 19),
-            Ticker(ts(5, 2), "B", 29)
+            Ticker(ts(15), ts(4, 1), "A", 16),
+            Ticker(ts(15), ts(4, 1), "B", 26),
+            Ticker(ts(15), ts(4, 2), "A", 17),
+            Ticker(ts(15), ts(4, 2), "B", 27),
+            Ticker(ts(15), ts(5, 1), "A", 18),
+            Ticker(ts(15), ts(5, 1), "B", 28),
+            Ticker(ts(15), ts(5, 2), "A", 19),
+            Ticker(ts(15), ts(5, 2), "B", 29)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(20))
 
         result.block.outputSlice.get.numRecords shouldEqual 4
 
@@ -149,10 +144,10 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          TickerSummary(ts(3), "A", 14, 15),
-          TickerSummary(ts(3), "B", 24, 25),
-          TickerSummary(ts(4), "A", 16, 17),
-          TickerSummary(ts(4), "B", 26, 27)
+          TickerSummary(ts(20), ts(3), "A", 14, 15),
+          TickerSummary(ts(20), ts(3), "B", 24, 25),
+          TickerSummary(ts(20), ts(4), "A", 16, 17),
+          TickerSummary(ts(20), ts(4), "B", 26, 27)
         )
       }
 
@@ -160,12 +155,12 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
         ParquetHelpers.write(
           inputDataDir.resolve("3.parquet"),
           Seq(
-            Ticker(ts(6, 1), "A", 20),
-            Ticker(ts(6, 1), "B", 30)
+            Ticker(ts(20), ts(6, 1), "A", 20),
+            Ticker(ts(20), ts(6, 1), "B", 30)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(30))
 
         result.block.outputSlice.get.numRecords shouldEqual 2
 
@@ -174,8 +169,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          TickerSummary(ts(5), "A", 18, 19),
-          TickerSummary(ts(5), "B", 28, 29)
+          TickerSummary(ts(30), ts(5), "A", 18, 19),
+          TickerSummary(ts(30), ts(5), "B", 28, 29)
         )
       }
     }
@@ -240,23 +235,23 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
         ParquetHelpers.write(
           inputDataDir.resolve("1.parquet"),
           Seq(
-            Ticker(ts(1, 1), "A", 10),
-            Ticker(ts(1, 1), "B", 20),
-            Ticker(ts(1, 2), "A", 10),
-            Ticker(ts(1, 2), "B", 21),
-            Ticker(ts(2, 1), "A", 12),
-            Ticker(ts(2, 1), "B", 22),
-            Ticker(ts(2, 2), "A", 13),
-            Ticker(ts(2, 2), "B", 23),
-            Ticker(ts(1, 3), "A", 11), // One day late and will be considered
-            Ticker(ts(3, 1), "A", 14),
-            Ticker(ts(3, 1), "B", 24),
-            Ticker(ts(3, 2), "A", 15),
-            Ticker(ts(3, 2), "B", 25)
+            Ticker(ts(5), ts(1, 1), "A", 10),
+            Ticker(ts(5), ts(1, 1), "B", 20),
+            Ticker(ts(5), ts(1, 2), "A", 10),
+            Ticker(ts(5), ts(1, 2), "B", 21),
+            Ticker(ts(5), ts(2, 1), "A", 12),
+            Ticker(ts(5), ts(2, 1), "B", 22),
+            Ticker(ts(5), ts(2, 2), "A", 13),
+            Ticker(ts(5), ts(2, 2), "B", 23),
+            Ticker(ts(5), ts(1, 3), "A", 11), // One day late and will be considered
+            Ticker(ts(5), ts(3, 1), "A", 14),
+            Ticker(ts(5), ts(3, 1), "B", 24),
+            Ticker(ts(5), ts(3, 2), "A", 15),
+            Ticker(ts(5), ts(3, 2), "B", 25)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(10))
 
         println(result.block)
 
@@ -265,8 +260,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          TickerSummary(ts(1), "A", 10, 11),
-          TickerSummary(ts(1), "B", 20, 21)
+          TickerSummary(ts(10), ts(1), "A", 10, 11),
+          TickerSummary(ts(10), ts(1), "B", 20, 21)
         )
       }
 
@@ -274,17 +269,17 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
         ParquetHelpers.write(
           inputDataDir.resolve("2.parquet"),
           Seq(
-            Ticker(ts(1, 4), "A", 12), // Two days late and will be discarded
-            Ticker(ts(4, 1), "A", 16),
-            Ticker(ts(4, 1), "B", 26),
-            Ticker(ts(4, 2), "A", 17),
-            Ticker(ts(4, 2), "B", 27),
-            Ticker(ts(5, 1), "A", 18),
-            Ticker(ts(5, 1), "B", 28)
+            Ticker(ts(10), ts(1, 4), "A", 12), // Two days late and will be discarded
+            Ticker(ts(10), ts(4, 1), "A", 16),
+            Ticker(ts(10), ts(4, 1), "B", 26),
+            Ticker(ts(10), ts(4, 2), "A", 17),
+            Ticker(ts(10), ts(4, 2), "B", 27),
+            Ticker(ts(10), ts(5, 1), "A", 18),
+            Ticker(ts(10), ts(5, 1), "B", 28)
           )
         )
 
-        val result = engineRunner.run(request, tempDir)
+        val result = engineRunner.run(request, tempDir, ts(20))
 
         println(result.block)
 
@@ -293,10 +288,10 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          TickerSummary(ts(2), "A", 12, 13),
-          TickerSummary(ts(2), "B", 22, 23),
-          TickerSummary(ts(3), "A", 14, 15),
-          TickerSummary(ts(3), "B", 24, 25)
+          TickerSummary(ts(20), ts(2), "A", 12, 13),
+          TickerSummary(ts(20), ts(2), "B", 22, 23),
+          TickerSummary(ts(20), ts(3), "A", 14, 15),
+          TickerSummary(ts(20), ts(3), "B", 24, 25)
         )
       }
     }

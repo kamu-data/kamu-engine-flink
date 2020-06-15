@@ -1,5 +1,7 @@
 package dev.kamu.engine.flink.test
 
+import java.sql.Timestamp
+
 import scala.concurrent.duration._
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.Manifest
@@ -28,7 +30,8 @@ class EngineRunner(
 
   def run(
     request: ExecuteQueryRequest,
-    workspaceDir: Path
+    workspaceDir: Path,
+    systemTime: Timestamp
   ): ExecuteQueryResult = {
     val engineJar = new Path(".")
       .resolve("target", "scala-2.12", "engine.flink.jar")
@@ -60,7 +63,10 @@ class EngineRunner(
             containerName = Some("jobmanager"),
             hostname = Some("jobmanager"),
             args = List("jobmanager"),
-            environmentVars = Map("JOB_MANAGER_RPC_ADDRESS" -> "jobmanager"),
+            environmentVars = Map(
+              "JOB_MANAGER_RPC_ADDRESS" -> "jobmanager",
+              "KAMU_SYSTEM_TIME" -> systemTime.toInstant.toString
+            ),
             exposePorts = List(6123, 8081),
             network = Some(networkName),
             volumeMap = Map(
