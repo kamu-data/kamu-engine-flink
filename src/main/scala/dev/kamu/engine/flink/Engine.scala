@@ -165,13 +165,11 @@ class Engine(
     datasetVocabs: Map[DatasetID, DatasetVocabulary],
     transform: TransformKind.Flink
   ): Table = {
-    // Prepare watermarks
-    val watermarks = transform.watermarks.map(w => (w.id, w)).toMap
+    val temporalTables = transform.temporalTables.map(t => (t.id, t)).toMap
 
     // Setup inputs
     for ((inputID, slice) <- inputSlices) {
       val inputVocab = datasetVocabs(inputID).withDefaults()
-      val watermark = watermarks.get(inputID)
 
       val eventTimeColumn = inputVocab.eventTimeColumn.get
       val eventTimePos = FieldInfoUtils
@@ -183,10 +181,11 @@ class Engine(
           s"Event time column not found: $eventTimeColumn"
         )
 
+      // TODO: Support delayed watermarking
       val stream = slice.dataStream.assignTimestampsAndWatermarks(
         BoundedOutOfOrderWatermark.forRow(
           _.getField(eventTimePos).asInstanceOf[Timestamp].getTime,
-          watermark.flatMap(_.maxLateBy).getOrElse(Duration.Zero)
+          Duration.Zero
         )
       )
 
@@ -212,7 +211,10 @@ class Engine(
 
       tEnv.createTemporaryView(s"`$inputID`", table)
 
-      watermark.map(_.primaryKey).getOrElse(Vector.empty) match {
+      temporalTables
+        .get(inputID)
+        .map(_.primaryKey)
+        .getOrElse(Vector.empty) match {
         case Vector() =>
         case Vector(pk) =>
           tEnv.registerFunction(

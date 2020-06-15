@@ -70,7 +70,7 @@ class EngineJoinStreamToTemporalTableTest
            |    - id: stocks.owned
            |  transform:
            |    engine: flink
-           |    watermarks:
+           |    temporalTables:
            |    - id: stocks.owned
            |      primaryKey:
            |      - symbol
@@ -210,7 +210,7 @@ class EngineJoinStreamToTemporalTableTest
            |    - id: stocks.owned
            |  transform:
            |    engine: flink
-           |    watermarks:
+           |    temporalTables:
            |    - id: stocks.owned
            |      primaryKey:
            |      - symbol
