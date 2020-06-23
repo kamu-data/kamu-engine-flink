@@ -42,6 +42,7 @@ import org.slf4j.LoggerFactory;
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.PriorityQueue;
@@ -53,6 +54,8 @@ import static org.apache.flink.util.Preconditions.checkState;
 /** Patches ContinuousFileReaderOperator
  * - not to cancel the reader forcefully when job is cancelled
  * - Writes a special marker file after consuming all inputs to let manager know it can shutdown
+ * - Re-emits previous watermark into the stream as Flink doesn't store them in savepoints [FLINK-5601]
+ * - Emits explicit end watermark
  */
 public class CustomFileReaderOperator<OUT> extends AbstractStreamOperator<OUT>
 	implements OneInputStreamOperator<TimestampedFileInputSplit, OUT>, OutputTypeConfigurable<OUT> {
@@ -64,6 +67,8 @@ public class CustomFileReaderOperator<OUT> extends AbstractStreamOperator<OUT>
 	private FileInputFormat<OUT> format;
 	private TypeSerializer<OUT> serializer;
 	private String markerPath;
+	private Instant prevWatermark;
+	private List<Instant> explicitWatermarks;
 
 	private transient Object checkpointLock;
 
@@ -73,9 +78,11 @@ public class CustomFileReaderOperator<OUT> extends AbstractStreamOperator<OUT>
 	private transient ListState<TimestampedFileInputSplit> checkpointedState;
 	private transient List<TimestampedFileInputSplit> restoredReaderState;
 
-    public CustomFileReaderOperator(FileInputFormat<OUT> format, String markerPath) {
+    public CustomFileReaderOperator(FileInputFormat<OUT> format, String markerPath, Instant prevWatermark, List<Instant> explicitWatermarks) {
 		this.format = checkNotNull(format);
 		this.markerPath = markerPath;
+		this.prevWatermark = prevWatermark;
+		this.explicitWatermarks = explicitWatermarks;
 	}
 
 	@Override
@@ -138,6 +145,13 @@ public class CustomFileReaderOperator<OUT> extends AbstractStreamOperator<OUT>
 		// and initialize the split reading thread
 		this.reader = new SplitReader<>(format, serializer, readerContext, checkpointLock, restoredReaderState);
 		this.restoredReaderState = null;
+
+		// Re-emit last seen watermark as Flink doesn't save them in savepoints
+		if (!prevWatermark.equals(Instant.MIN)) {
+			LOG.info("{}: Emitting explicit start watermark: {}", getOperatorName(), prevWatermark);
+			readerContext.emitWatermark(new Watermark(prevWatermark.toEpochMilli()));
+		}
+
 		this.reader.start();
 	}
 
@@ -148,6 +162,13 @@ public class CustomFileReaderOperator<OUT> extends AbstractStreamOperator<OUT>
 		} else {
     		LOG.info("{}: Got end of splits marker - waiting for reader to finish", getOperatorName());
     		reader.waitAllRead();
+
+    		// TODO: Support interlacing watermarks with data
+			for(Instant instant: explicitWatermarks) {
+				LOG.info("{}: Emitting explicit end watermark: {}", getOperatorName(), instant);
+				readerContext.emitWatermark(new Watermark(instant.toEpochMilli()));
+			}
+
 			LOG.info("{}: All splits were read, creating marker file at: {}", getOperatorName(), markerPath);
 			new File(markerPath).createNewFile();
 		}

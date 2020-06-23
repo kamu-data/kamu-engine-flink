@@ -13,15 +13,13 @@ import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileSystem
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
-class EngineMapTest extends FunSuite with Matchers with BeforeAndAfter {
+class EngineMapTest
+    extends FunSuite
+    with Matchers
+    with BeforeAndAfter
+    with TimeHelpers {
 
   val fileSystem = FileSystem.get(new Configuration())
-
-  def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
-    val dt = LocalDateTime.of(2000, 1, d, h, m)
-    val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
-    Timestamp.from(zdt.toInstant)
-  }
 
   test("Simple map") {
     Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
@@ -48,9 +46,8 @@ class EngineMapTest extends FunSuite with Matchers with BeforeAndAfter {
            |      FROM `in`
            |inputSlices:
            |  in:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |datasetLayouts:
            |  in:
            |    metadataDir: /none
@@ -79,9 +76,14 @@ class EngineMapTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(10))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(4))),
+          tempDir,
+          ts(10)
+        )
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 4
+        result.block.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
           .read[Ticker](outputDataDir.resolve(result.dataFileName.get))
@@ -106,9 +108,14 @@ class EngineMapTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(20))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(8))),
+          tempDir,
+          ts(20)
+        )
 
-        println(result.block)
+        result.block.outputSlice.get.numRecords shouldEqual 4
+        result.block.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
           .read[Ticker](outputDataDir.resolve(result.dataFileName.get))

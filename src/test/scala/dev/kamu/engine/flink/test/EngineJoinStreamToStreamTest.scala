@@ -1,17 +1,15 @@
 package dev.kamu.engine.flink.test
 
 import java.sql.Timestamp
-import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.DatasetLayout
 import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.hadoop.fs.FileSystem
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Order(
@@ -51,24 +49,10 @@ case class ShipmentStats(
 class EngineJoinStreamToStreamTest
     extends FunSuite
     with Matchers
-    with BeforeAndAfter {
+    with BeforeAndAfter
+    with TimeHelpers {
 
   val fileSystem = FileSystem.get(new Configuration())
-
-  def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
-    val dt = LocalDateTime.of(2000, 1, d, h, m)
-    val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
-    Timestamp.from(zdt.toInstant)
-  }
-
-  def tempLayout(workspaceDir: Path, datasetName: String): DatasetLayout = {
-    DatasetLayout(
-      metadataDir = workspaceDir.resolve("meta", datasetName),
-      dataDir = workspaceDir.resolve("data", datasetName),
-      checkpointsDir = workspaceDir.resolve("checkpoints", datasetName),
-      cacheDir = workspaceDir.resolve("cache", datasetName)
-    )
-  }
 
   test("Stream to stream join") {
     Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
@@ -103,13 +87,11 @@ class EngineJoinStreamToStreamTest
            |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
            |inputSlices:
            |  orders:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |  shipments:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |datasetLayouts:
            |  orders:
            |    metadataDir: /none
@@ -153,7 +135,11 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(10))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("orders" -> ts(5), "shipments" -> ts(2))),
+          tempDir,
+          ts(10)
+        )
 
         result.block.outputSlice.get.numRecords shouldEqual 3
 
@@ -186,9 +172,17 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(20))
+        val result = engineRunner.run(
+          withWatermarks(
+            request,
+            Map("orders" -> ts(10), "shipments" -> ts(11))
+          ),
+          tempDir,
+          ts(20)
+        )
 
         result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
           .read[ShippedOrder](
@@ -256,13 +250,11 @@ class EngineJoinStreamToStreamTest
            |        WHERE order_quantity <> shipped_quantity_total
            |inputSlices:
            |  orders:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |  shipments:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |datasetLayouts:
            |  orders:
            |    metadataDir: /none
@@ -312,9 +304,17 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(20))
+        val result = engineRunner.run(
+          withWatermarks(
+            request,
+            Map("orders" -> ts(15), "shipments" -> ts(16))
+          ),
+          tempDir,
+          ts(20)
+        )
 
         result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputWatermark.get shouldEqual ts(13).toInstant
 
         val actual = ParquetHelpers
           .read[ShipmentStats](
@@ -339,7 +339,7 @@ class EngineJoinStreamToStreamTest
     }
   }
 
-  ignore("Stream to stream join result can be used with other queries (tricky)") {
+  test("Stream to stream join result can be used with other queries (tricky)") {
     Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
       val engineRunner =
         new EngineRunner(fileSystem, new DockerClient(fileSystem))
@@ -391,13 +391,11 @@ class EngineJoinStreamToStreamTest
            |        WHERE order_quantity <> shipped_quantity_total
            |inputSlices:
            |  orders:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |  shipments:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |datasetLayouts:
            |  orders:
            |    metadataDir: /none
@@ -445,9 +443,17 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(20))
+        val result = engineRunner.run(
+          withWatermarks(
+            request,
+            Map("orders" -> ts(13), "shipments" -> ts(13))
+          ),
+          tempDir,
+          ts(20)
+        )
 
         result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputWatermark.get shouldEqual ts(11).toInstant
 
         val actual = ParquetHelpers
           .read[ShipmentStats](

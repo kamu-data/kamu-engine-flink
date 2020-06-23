@@ -8,9 +8,8 @@ import org.apache.flink.types.Row
 
 import scala.concurrent.duration.Duration
 
-class BoundedOutOfOrderWatermark[T](
-  extractor: T => Long,
-  maxOutOfOrderness: Long
+class TimestampAssigner[T](
+  extractor: T => Long
 ) extends AssignerWithPunctuatedWatermarks[T] {
 
   override def extractTimestamp(
@@ -19,6 +18,19 @@ class BoundedOutOfOrderWatermark[T](
   ): Long = {
     extractor(element)
   }
+
+  override def checkAndGetNextWatermark(
+    lastElement: T,
+    extractedTimestamp: Long
+  ): Watermark = {
+    null
+  }
+}
+
+class BoundedOutOfOrderWatermark[T](
+  extractor: T => Long,
+  maxOutOfOrderness: Long
+) extends TimestampAssigner[T](extractor) {
 
   override def checkAndGetNextWatermark(
     lastElement: T,

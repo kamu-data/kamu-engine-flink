@@ -9,7 +9,12 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, ExecuteQueryResult}
+import dev.kamu.core.manifests.infra.{
+  ExecuteQueryRequest,
+  ExecuteQueryResult,
+  InputDataSlice,
+  Watermark
+}
 import dev.kamu.core.utils.Clock
 import dev.kamu.core.utils.fs._
 import org.apache.flink.api.common.JobStatus
@@ -19,10 +24,7 @@ import org.apache.flink.api.java.typeutils.RowTypeInfo
 import org.apache.flink.core.fs.{Path => FlinkPath}
 import org.apache.flink.formats.parquet.ParquetRowInputFormat
 import org.apache.flink.streaming.api.datastream.DataStreamSource
-import org.apache.flink.streaming.api.functions.source.{
-  ContinuousFileReaderOperator,
-  FileProcessingMode
-}
+import org.apache.flink.streaming.api.functions.source.FileProcessingMode
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.Table
 import org.apache.flink.table.api.scala._
@@ -44,14 +46,14 @@ import scala.sys.process.Process
 
 case class InputSlice(
   dataStream: DataStream[Row],
-  dataSlice: DataSlice,
-  markerPath: Path,
-  statsPath: Path
+  interval: Interval[Instant],
+  markerPath: Path
 )
 
 case class SliceStats(
   hash: String,
-  numRecords: Int
+  lastWatermark: Option[Instant],
+  numRecords: Long
 )
 
 class Engine(
@@ -71,17 +73,17 @@ class Engine(
     val transform =
       yaml.load[TransformKind.Flink](request.source.transform.toConfig)
 
-    val markersPath =
+    val checkpointsDir =
       request.datasetLayouts(request.datasetID.toString).checkpointsDir
 
-    fileSystem.mkdirs(markersPath)
+    fileSystem.mkdirs(checkpointsDir)
 
     val inputSlices =
       prepareInputSlices(
         typedMap(request.inputSlices),
         typedMap(request.datasetVocabs),
         typedMap(request.datasetLayouts),
-        markersPath
+        checkpointsDir
       )
 
     val resultTable = executeQuery(
@@ -92,11 +94,15 @@ class Engine(
     )
 
     logger.info("Result schema:\n{}", resultTable.getSchema)
-    val resultStream = resultTable.toAppendStream[Row]
 
     // Computes row count and data hash
-    val resultStatsPath = markersPath.resolve("output-stats")
-    resultStream.addSink(new StatsSink(resultStatsPath.toUri.getPath))
+    val resultStream = resultTable
+      .toAppendStream[Row]
+      .withStats(
+        request.datasetID.toString,
+        checkpointsDir.resolve(request.datasetID.toString)
+      )
+      .withDebugLogging(request.datasetID.toString)
 
     // Convert to Avro so we can then save in Parquet :(
     val avroSchema = SchemaConverter.convert(resultTable.getSchema)
@@ -128,12 +134,11 @@ class Engine(
       request.datasetLayouts(request.datasetID.toString).checkpointsDir
     )
 
-    val stats = gatherStats(inputSlices, request.datasetID, resultStatsPath)
+    val stats =
+      gatherStats(request.datasetID :: inputSlices.keys.toList, checkpointsDir)
 
-    // TODO: Compute hash, interval and num records
     val block = MetadataBlock(
       prevBlockHash = "",
-      // TODO: Current time? Min of input times? Require to propagate in computations?
       systemTime = systemClock.instant(),
       outputSlice = Some(
         DataSlice(
@@ -142,10 +147,12 @@ class Engine(
           numRecords = stats(request.datasetID).numRecords
         )
       ),
+      outputWatermark = stats(request.datasetID).lastWatermark,
       inputSlices = request.source.inputs.map(
         i =>
-          inputSlices(i.id).dataSlice.copy(
+          DataSlice(
             hash = stats(i.id).hash,
+            interval = inputSlices(i.id).interval,
             numRecords = stats(i.id).numRecords
           )
       )
@@ -172,22 +179,6 @@ class Engine(
       val inputVocab = datasetVocabs(inputID).withDefaults()
 
       val eventTimeColumn = inputVocab.eventTimeColumn.get
-      val eventTimePos = FieldInfoUtils
-        .getFieldNames(slice.dataStream.dataType)
-        .indexOf(eventTimeColumn)
-
-      if (eventTimePos < 0)
-        throw new Exception(
-          s"Event time column not found: $eventTimeColumn"
-        )
-
-      // TODO: Support delayed watermarking
-      val stream = slice.dataStream.assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark.forRow(
-          _.getField(eventTimePos).asInstanceOf[Timestamp].getTime,
-          Duration.Zero
-        )
-      )
 
       val columns = FieldInfoUtils
         .getFieldNames(slice.dataStream.dataType)
@@ -200,7 +191,7 @@ class Engine(
         ExpressionParser.parseExpressionList(columns.mkString(", ")).asScala
 
       val table = tEnv
-        .fromDataStream(stream, expressions: _*)
+        .fromDataStream(slice.dataStream, expressions: _*)
         .dropColumns(inputVocab.systemTimeColumn.get)
 
       logger.info(
@@ -238,7 +229,6 @@ class Engine(
       val alias = step.alias.getOrElse(datasetID.toString)
       val table = tEnv.sqlQuery(step.query)
       tEnv.createTemporaryView(s"`$alias`", table)
-      //table.toAppendStream[Row].addSink(new SnitchSink(alias))
     }
 
     // Get result
@@ -315,53 +305,89 @@ class Engine(
   }
 
   private def prepareInputSlices(
-    inputSlices: Map[DatasetID, DataSlice],
+    inputSlices: Map[DatasetID, InputDataSlice],
     inputVocabs: Map[DatasetID, DatasetVocabulary],
     inputLayouts: Map[DatasetID, DatasetLayout],
-    markersPath: Path
+    checkpointsDir: Path
   ): Map[DatasetID, InputSlice] = {
-    inputSlices.map({
-      case (id, slice) =>
-        val inputSlice =
+    inputSlices.keys.toSeq
+      .sortBy(_.toString)
+      .map(id => {
+        (
+          id,
           prepareInputSlice(
             id,
-            slice,
+            inputSlices(id),
             inputVocabs(id).withDefaults(),
             inputLayouts(id),
-            markersPath
+            checkpointsDir
           )
-        (id, inputSlice)
-    })
+        )
+      })
+      .toMap
   }
 
   private def prepareInputSlice(
     id: DatasetID,
-    slice: DataSlice,
+    slice: InputDataSlice,
     vocab: DatasetVocabulary,
     layout: DatasetLayout,
-    markersPath: Path
+    checkpointsDir: Path
   ): InputSlice = {
-    val markerPath = markersPath.resolve(s"input-marker-$id")
-    val statsPath = markersPath.resolve(s"input-stats-$id")
+    val markerPath = checkpointsDir.resolve(s"$id.marker")
+    val statsPath = checkpointsDir.resolve(id.toString)
+
+    val prevStats = readStats(statsPath)
 
     // TODO: use schema from metadata
     val stream =
       sliceData(
-        openStream(id, layout.dataDir, markerPath),
+        openStream(
+          id,
+          layout.dataDir,
+          markerPath,
+          prevStats.flatMap(_.lastWatermark),
+          slice.explicitWatermarks
+        ),
         slice.interval,
         vocab
       )
 
-    //stream.addSink(new SnitchSink(id.toString))
+    val eventTimeColumn = vocab.eventTimeColumn.get
+    val eventTimePos = FieldInfoUtils
+      .getFieldNames(stream.dataType)
+      .indexOf(eventTimeColumn)
 
-    // Computes hash and count rows
-    stream.addSink(new StatsSink(statsPath.toUri.getPath))
+    if (eventTimePos < 0)
+      throw new Exception(
+        s"Event time column not found: $eventTimeColumn"
+      )
+
+    // TODO: Support delayed watermarking
+    //val streamWithWatermarks = stream.assignTimestampsAndWatermarks(
+    //  BoundedOutOfOrderWatermark.forRow(
+    //    _.getField(eventTimePos).asInstanceOf[Timestamp].getTime,
+    //    Duration.Zero
+    //  )
+    //)
+
+    val streamWithWatermarks = stream.transform(
+      "Timestamps/Watermarks",
+      new CustomWatermarksOperator[Row](
+        new TimestampAssigner(
+          _.getField(eventTimePos).asInstanceOf[Timestamp].getTime
+        )
+      )
+    )(stream.dataType)
+
+    val streamWithStats = streamWithWatermarks
+      .withStats(id.toString, statsPath)
+      .withDebugLogging(id.toString)
 
     InputSlice(
-      dataStream = stream,
-      dataSlice = slice,
-      markerPath = markerPath,
-      statsPath = statsPath
+      dataStream = streamWithStats,
+      interval = slice.interval,
+      markerPath = markerPath
     )
   }
 
@@ -370,65 +396,34 @@ class Engine(
     interval: Interval[Instant],
     vocab: DatasetVocabulary
   ): DataStream[Row] = {
-    interval match {
-      case Empty() =>
-        stream.filter(_ => false)
-      case All() =>
-        stream
+    val schema = stream.dataType.asInstanceOf[RowTypeInfo]
+    val systemTimeColumn = schema.getFieldIndex(vocab.systemTimeColumn.get)
+
+    val (min, max) = interval match {
+      case Empty() => (Instant.MAX, Instant.MIN)
+      case All()   => (Instant.MIN, Instant.MAX)
       case _ =>
-        val schema = stream.dataType.asInstanceOf[RowTypeInfo]
-        val systemTimeColumn = schema.getFieldIndex(vocab.systemTimeColumn.get)
-
-        val dfLower = interval.lowerBound match {
-          case Unbound() =>
-            stream
-          case Open(x) =>
-            val ts = Timestamp.from(x)
-            stream.filter(
-              r => {
-                r.getField(systemTimeColumn)
-                  .asInstanceOf[Timestamp]
-                  .compareTo(ts) > 0
-              }
-            )
-          case Closed(x) =>
-            val ts = Timestamp.from(x)
-            stream.filter(
-              r => {
-                r.getField(systemTimeColumn)
-                  .asInstanceOf[Timestamp]
-                  .compareTo(ts) >= 0
-              }
-            )
-          case _ =>
-            throw new RuntimeException(s"Unexpected: $interval")
-        }
-
-        interval.upperBound match {
-          case Unbound() =>
-            dfLower
-          case Open(x) =>
-            val ts = Timestamp.from(x)
-            stream.filter(
-              r => {
-                r.getField(systemTimeColumn)
-                  .asInstanceOf[Timestamp]
-                  .compareTo(ts) < 0
-              }
-            )
-          case Closed(x) =>
-            val ts = Timestamp.from(x)
-            stream.filter(
-              r => {
-                r.getField(systemTimeColumn)
-                  .asInstanceOf[Timestamp]
-                  .compareTo(ts) <= 0
-              }
-            )
-          case _ =>
-            throw new RuntimeException(s"Unexpected: $interval")
-        }
+        (
+          interval.lowerBound match {
+            case Unbound() => Instant.MIN
+            case Open(x)   => x
+            case Closed(x) => x.minusMillis(1)
+          },
+          interval.upperBound match {
+            case Unbound() => Instant.MAX
+            case Open(x)   => x
+            case Closed(x) => x.plusMillis(1)
+          }
+        )
     }
+
+    stream.filter(row => {
+      val systemTime = row
+        .getField(systemTimeColumn)
+        .asInstanceOf[Timestamp]
+        .toInstant
+      systemTime.compareTo(min) > 0 && systemTime.compareTo(max) < 0
+    })
   }
 
   private def typedMap[T](m: Map[String, T]): Map[DatasetID, T] = {
@@ -438,34 +433,40 @@ class Engine(
   }
 
   private def gatherStats(
-    inputSlices: Map[DatasetID, InputSlice],
-    outputID: DatasetID,
-    outputStatsPath: Path
+    datasetIDs: Seq[DatasetID],
+    checkpointsDir: Path
   ): Map[DatasetID, SliceStats] = {
-    val pathMap = inputSlices.mapValues(_.statsPath) ++ Map(
-      outputID -> outputStatsPath
-    )
-
-    val stats = pathMap.mapValues(readStats).view.force
-
-    // Cleanup
-    pathMap.values.foreach(p => fileSystem.delete(p, false))
-
-    stats
+    datasetIDs
+      .map(id => (id, checkpointsDir.resolve(id.toString)))
+      .map { case (id, p) => (id, readStats(p)) }
+      .filter(_._2.isDefined)
+      .map { case (id, s) => (id, s.get) }
+      .toMap
   }
 
-  private def readStats(path: Path): SliceStats = {
+  private def readStats(path: Path): Option[SliceStats] = {
+    if (!fileSystem.exists(path))
+      return None
+
     try {
       val reader = new Scanner(new File(path.toUri.getPath))
 
       val sRowCount = reader.nextLine()
+      val sLastWatermark = reader.nextLine()
       val hash = reader.nextLine()
+
+      val lLastWatermark = sLastWatermark.toLong
 
       reader.close()
 
-      SliceStats(
-        hash = hash,
-        numRecords = sRowCount.toInt
+      Some(
+        SliceStats(
+          hash = hash,
+          lastWatermark =
+            if (lLastWatermark == Long.MinValue) None
+            else Some(Instant.ofEpochMilli(lLastWatermark)),
+          numRecords = sRowCount.toLong
+        )
       )
     } catch {
       case e: Exception =>
@@ -478,7 +479,9 @@ class Engine(
   private def openStream(
     datasetID: DatasetID,
     path: Path,
-    markerPath: Path
+    markerPath: Path,
+    prevWatermark: Option[Instant],
+    explicitWatermarks: Vector[Watermark]
   ): DataStream[Row] = {
     // TODO: Ignoring schema evolution
     val schema = getSchemaFromFile(findFirstParquetFile(path).get)
@@ -506,7 +509,9 @@ class Engine(
         datasetID.toString,
         FileProcessingMode.PROCESS_CONTINUOUSLY,
         1000,
-        markerPath
+        markerPath,
+        prevWatermark,
+        explicitWatermarks
       )
     )
   }
@@ -535,7 +540,9 @@ class Engine(
     sourceName: String,
     monitoringMode: FileProcessingMode,
     interval: Long,
-    markerPath: Path
+    markerPath: Path,
+    prevWatermark: Option[Instant],
+    explicitWatermarks: Vector[Watermark]
   ): DataStreamSource[T] = {
     val monitoringFunction =
       new CustomFileMonitoringFunction[T](
@@ -546,7 +553,12 @@ class Engine(
       )
 
     val reader =
-      new CustomFileReaderOperator[T](inputFormat, markerPath.toUri.getPath)
+      new CustomFileReaderOperator[T](
+        inputFormat,
+        markerPath.toUri.getPath,
+        prevWatermark.getOrElse(Instant.MIN),
+        explicitWatermarks.map(_.eventTime).asJava
+      )
     //val reader = new ContinuousFileReaderOperator[T](inputFormat)
 
     val source = env.getJavaEnv
@@ -554,5 +566,23 @@ class Engine(
       .transform("Split Reader: " + sourceName, typeInfo, reader)
 
     new DataStreamSource(source)
+  }
+
+  implicit class StreamHelpers(s: DataStream[Row]) {
+
+    def withStats(id: String, path: Path): DataStream[Row] = {
+      s.transform(
+        "stats",
+        new StatsOperator(id, path.toUri.getPath)
+      )(s.dataType)
+    }
+
+    def withDebugLogging(id: String): DataStream[Row] = {
+      s.transform(
+        "snitch",
+        new SnitchOperator(id)
+      )(s.dataType)
+    }
+
   }
 }

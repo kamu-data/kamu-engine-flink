@@ -33,24 +33,10 @@ case class StocksOwnedWithValue(
 class EngineJoinStreamToTemporalTableTest
     extends FunSuite
     with Matchers
-    with BeforeAndAfter {
+    with BeforeAndAfter
+    with TimeHelpers {
 
   val fileSystem = FileSystem.get(new Configuration())
-
-  def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
-    val dt = LocalDateTime.of(2000, 1, d, h, m)
-    val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
-    Timestamp.from(zdt.toInstant)
-  }
-
-  def tempLayout(workspaceDir: Path, datasetName: String): DatasetLayout = {
-    DatasetLayout(
-      metadataDir = workspaceDir.resolve("meta", datasetName),
-      dataDir = workspaceDir.resolve("data", datasetName),
-      checkpointsDir = workspaceDir.resolve("checkpoints", datasetName),
-      cacheDir = workspaceDir.resolve("cache", datasetName)
-    )
-  }
 
   test("Temporal table join") {
     Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
@@ -87,13 +73,11 @@ class EngineJoinStreamToTemporalTableTest
            |      WHERE t.symbol = owned.symbol
            |inputSlices:
            |  tickers:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |  stocks.owned:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |datasetLayouts:
            |  tickers:
            |    metadataDir: /none
@@ -140,9 +124,17 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(10))
+        val result = engineRunner.run(
+          withWatermarks(
+            request,
+            Map("tickers" -> ts(4), "stocks.owned" -> ts(3))
+          ),
+          tempDir,
+          ts(10)
+        )
 
-        result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputSlice.get.numRecords shouldEqual 3
+        result.block.outputWatermark.get shouldEqual ts(3).toInstant
 
         val actual = ParquetHelpers
           .read[StocksOwnedWithValue](
@@ -152,8 +144,8 @@ class EngineJoinStreamToTemporalTableTest
 
         actual shouldEqual List(
           StocksOwnedWithValue(ts(10), ts(2), "A", 100, 10, 1000),
-          StocksOwnedWithValue(ts(10), ts(3), "A", 100, 12, 1200)
-          //StocksOwnedWithValue(ts(3), "B", 200, 22, 4400) ????
+          StocksOwnedWithValue(ts(10), ts(3), "A", 100, 12, 1200),
+          StocksOwnedWithValue(ts(10), ts(3), "B", 200, 22, 4400)
         )
       }
 
@@ -173,9 +165,17 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(20))
+        val result = engineRunner.run(
+          withWatermarks(
+            request,
+            Map("tickers" -> ts(5), "stocks.owned" -> ts(4))
+          ),
+          tempDir,
+          ts(20)
+        )
 
-        result.block.outputSlice.get.numRecords shouldEqual 3
+        result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
           .read[StocksOwnedWithValue](
@@ -184,7 +184,6 @@ class EngineJoinStreamToTemporalTableTest
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
-          StocksOwnedWithValue(ts(20), ts(3), "B", 200, 22, 4400), // !!!???
           StocksOwnedWithValue(ts(20), ts(4), "A", 100, 14, 1400),
           StocksOwnedWithValue(ts(20), ts(4), "B", 250, 24, 6000)
         )
@@ -192,7 +191,7 @@ class EngineJoinStreamToTemporalTableTest
     }
   }
 
-  ignore("Temporal table join with source watermark") {
+  test("Temporal table join with source watermark") {
     Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
       val engineRunner =
         new EngineRunner(fileSystem, new DockerClient(fileSystem))
@@ -227,13 +226,11 @@ class EngineJoinStreamToTemporalTableTest
            |      WHERE t.symbol = owned.symbol
            |inputSlices:
            |  tickers:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |  stocks.owned:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |datasetLayouts:
            |  tickers:
            |    metadataDir: /none
@@ -276,9 +273,17 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(10))
+        val result = engineRunner.run(
+          withWatermarks(
+            request,
+            Map("tickers" -> ts(5), "stocks.owned" -> ts(5))
+          ),
+          tempDir,
+          ts(10)
+        )
 
         result.block.outputSlice.get.numRecords shouldEqual 3
+        result.block.outputWatermark.get shouldEqual ts(5).toInstant
 
         val actual = ParquetHelpers
           .read[StocksOwnedWithValue](

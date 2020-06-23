@@ -4,14 +4,16 @@ import java.sql.Timestamp
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
 import pureconfig.generic.auto._
+import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, Watermark}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.FileSystem
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
+import spire.math.Interval
 
 case class Ticker(
   system_time: Timestamp,
@@ -28,17 +30,15 @@ case class TickerSummary(
   max: Int
 )
 
-class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
+class EngineAggregationTest
+    extends FunSuite
+    with Matchers
+    with BeforeAndAfter
+    with TimeHelpers {
 
   val fileSystem = FileSystem.get(new Configuration())
 
-  def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
-    val dt = LocalDateTime.of(2000, 1, d, h, m)
-    val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
-    Timestamp.from(zdt.toInstant)
-  }
-
-  test("Tumbling window aggregation") {
+  test("Tumbling window aggregation - ordered") {
     Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
       val engineRunner =
         new EngineRunner(fileSystem, new DockerClient(fileSystem))
@@ -65,9 +65,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
            |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
            |inputSlices:
            |  in:
-           |    hash: ""
            |    interval: "(-inf, inf)"
-           |    numRecords: 0
+           |    explicitWatermarks: []
            |datasetLayouts:
            |  in:
            |    metadataDir: /none
@@ -104,9 +103,18 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(10))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(3, 2))),
+          tempDir,
+          ts(10)
+        )
 
-        println(result.block)
+        result.block.inputSlices(0).numRecords shouldEqual 12
+        result.block.outputSlice.get.numRecords shouldEqual 4
+        result.block.outputSlice.get.interval shouldEqual Interval.point(
+          ts(10).toInstant
+        )
+        result.block.outputWatermark.get shouldEqual ts(3, 2).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
@@ -135,9 +143,15 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(20))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(5, 2))),
+          tempDir,
+          ts(20)
+        )
 
+        result.block.inputSlices(0).numRecords shouldEqual 8
         result.block.outputSlice.get.numRecords shouldEqual 4
+        result.block.outputWatermark.get shouldEqual ts(5, 2).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
@@ -160,9 +174,15 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(30))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(6, 1))),
+          tempDir,
+          ts(30)
+        )
 
+        result.block.inputSlices(0).numRecords shouldEqual 2
         result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputWatermark.get shouldEqual ts(6, 1).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
@@ -173,10 +193,44 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           TickerSummary(ts(30), ts(5), "B", 28, 29)
         )
       }
+
+      { // Advances watermark without new data
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(7, 1))),
+          tempDir,
+          ts(31)
+        )
+
+        result.block.inputSlices(0).numRecords shouldEqual 0
+        result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputWatermark.get shouldEqual ts(7, 1).toInstant
+
+        val actual = ParquetHelpers
+          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .sortBy(i => (i.event_time.getTime, i.symbol))
+
+        actual shouldEqual List(
+          TickerSummary(ts(31), ts(6), "A", 20, 20),
+          TickerSummary(ts(31), ts(6), "B", 30, 30)
+        )
+      }
+
+      { // Advances watermark again without expecting any output this time
+        // Verifying that previous watermark is propagated
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(8))),
+          tempDir,
+          ts(31)
+        )
+
+        result.block.inputSlices(0).numRecords shouldEqual 0
+        result.block.outputSlice.get.numRecords shouldEqual 0
+        result.block.outputWatermark.get shouldEqual ts(8).toInstant
+      }
     }
   }
 
-  ignore("Tumbling window aggregation with watermark") {
+  test("Tumbling window aggregation - late data") {
     Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
       val engineRunner =
         new EngineRunner(fileSystem, new DockerClient(fileSystem))
@@ -193,10 +247,6 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           |    - id: in
           |  transform:
           |    engine: flink
-          |    watermarks:
-          |    - id: in
-          |      eventTimeColumn: event_time
-          |      maxLateBy: 1 day
           |    query: >
           |      SELECT
           |        TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
@@ -207,9 +257,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
           |inputSlices:
           |  in:
-          |    hash: ""
           |    interval: "(-inf, inf)"
-          |    numRecords: 0
+          |    explicitWatermarks: []
           |datasetLayouts:
           |  in:
           |    metadataDir: /none
@@ -222,12 +271,8 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           |    checkpointsDir: $outputCheckpointDir
           |    cacheDir: /none
           |datasetVocabs:
-          |  in:
-          |    systemTimeColumn: system_time
-          |    corruptRecordColumn: __corrupt_record__
-          |  out:
-          |    systemTimeColumn: system_time
-          |    corruptRecordColumn: __corrupt_record__
+          |  in: {}
+          |  out: {}
           |""".stripMargin
       )
 
@@ -251,9 +296,15 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(10))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(2, 2))),
+          tempDir,
+          ts(10)
+        )
 
-        println(result.block)
+        result.block.inputSlices(0).numRecords shouldEqual 13
+        result.block.outputSlice.get.numRecords shouldEqual 2
+        result.block.outputWatermark.get shouldEqual ts(2, 2).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
@@ -279,9 +330,15 @@ class EngineAggregationTest extends FunSuite with Matchers with BeforeAndAfter {
           )
         )
 
-        val result = engineRunner.run(request, tempDir, ts(20))
+        val result = engineRunner.run(
+          withWatermarks(request, Map("in" -> ts(4, 1))),
+          tempDir,
+          ts(20)
+        )
 
-        println(result.block)
+        result.block.inputSlices(0).numRecords shouldEqual 7
+        result.block.outputSlice.get.numRecords shouldEqual 4
+        result.block.outputWatermark.get shouldEqual ts(4, 1).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
