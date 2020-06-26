@@ -5,22 +5,11 @@ import java.util
 import org.apache.avro.{LogicalTypes, Schema, SchemaBuilder}
 import org.apache.flink.formats.parquet.utils.ParquetSchemaConverter
 import org.apache.flink.table.api.TableSchema
-import org.apache.flink.table.types.logical.{
-  BigIntType,
-  CharType,
-  DecimalType,
-  DoubleType,
-  FloatType,
-  IntType,
-  LegacyTypeInformationType,
-  TimestampType,
-  VarBinaryType,
-  VarCharType
-}
-import org.apache.flink.table.types.utils.LegacyTypeInfoDataTypeConverter
+import org.apache.flink.table.types.logical._
 import org.apache.flink.table.types.{AtomicDataType, DataType}
 
 import scala.collection.JavaConverters._
+import scala.util.Random
 
 object SchemaConverter {
   def convert(tableSchema: TableSchema): Schema = {
@@ -121,7 +110,10 @@ object SchemaConverter {
 
     LogicalTypes
       .decimal(precision, scale)
-      .addToSchema(Schema.createFixed("decimal", "", "", size))
+      .addToSchema(
+        Schema
+          .createFixed(randomAlpha.take(10).mkString(""), "", "", size)
+      )
   }
 
   private def nullable(schema: Schema): Schema = {
@@ -131,5 +123,15 @@ object SchemaConverter {
         Schema.create(Schema.Type.NULL)
       )
     )
+  }
+
+  def randomAlpha: Stream[Char] = {
+    def nextAlpha: Char = {
+      val chars =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+      chars charAt (Random.nextInt(chars.length))
+    }
+
+    Stream.continually(nextAlpha)
   }
 }
