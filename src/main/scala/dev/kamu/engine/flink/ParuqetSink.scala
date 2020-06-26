@@ -1,6 +1,6 @@
 package dev.kamu.engine.flink
 
-import org.apache.avro.Schema
+import org.apache.avro.{Conversions, Schema}
 import org.apache.avro.generic.{GenericData, GenericRecord}
 import org.apache.flink.runtime.state.{
   FunctionInitializationContext,
@@ -54,10 +54,15 @@ class ParuqetSink(avroSchemaString: String, path: String)
 
     val avroSchema = new Schema.Parser().parse(avroSchemaString)
 
+    val model = new GenericData()
+    model.addLogicalTypeConversion(
+      new AvroConversions.LocalDateTimeConversion()
+    )
+
     val writer = AvroParquetWriter
       .builder[GenericRecord](new Path(path))
       .withSchema(avroSchema)
-      .withDataModel(GenericData.get)
+      .withDataModel(model)
       .withCompressionCodec(CompressionCodecName.SNAPPY)
       .build()
 

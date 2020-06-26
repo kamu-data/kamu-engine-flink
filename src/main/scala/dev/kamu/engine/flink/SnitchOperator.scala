@@ -31,7 +31,7 @@ class SnitchOperator(name: String)
   }
 
   override def snapshotState(context: StateSnapshotContext): Unit = {
-    println(s"###### ${getOperatorID()} $name > SNAPSHOT")
+    println(s"###### $name > SNAPSHOT")
   }
 
   override def close(): Unit = {

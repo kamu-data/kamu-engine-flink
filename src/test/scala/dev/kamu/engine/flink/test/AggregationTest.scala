@@ -6,7 +6,8 @@ import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.table.api.scala._
+import org.apache.flink.table.api._
+import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.types.Row
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 

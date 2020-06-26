@@ -71,11 +71,9 @@ lazy val kamuCoreManifests = project
 //////////////////////////////////////////////////////////////////////////////
 
 lazy val versions = new {
-  val geoSpark = "1.2.0"
+  val flink = "1.12-SNAPSHOT"
   val hadoopCommon = "2.6.5"
   val pureConfig = "0.11.1"
-  val spark = "2.4.0"
-  val sparkTestingBase = s"${spark}_0.12.0"
   val spire = "0.13.0" // Used by spark too
 }
 
@@ -84,12 +82,6 @@ lazy val deps =
     // Configs
     val pureConfig = "com.github.pureconfig" %% "pureconfig" % versions.pureConfig
     val pureConfigYaml = "com.github.pureconfig" %% "pureconfig-yaml" % versions.pureConfig
-    // Spark
-    val sparkCore = "org.apache.spark" %% "spark-core" % versions.spark
-    val sparkSql = "org.apache.spark" %% "spark-sql" % versions.spark
-    // GeoSpark
-    val geoSpark = "org.datasyslab" % "geospark" % versions.geoSpark
-    val geoSparkSql = "org.datasyslab" % "geospark-sql_2.3" % versions.geoSpark
     // Hadoop File System
     val hadoopCommon =
       ("org.apache.hadoop" % "hadoop-common" % versions.hadoopCommon)
@@ -101,30 +93,26 @@ lazy val deps =
     val spire = "org.spire-math" %% "spire" % versions.spire
     // Test
     val scalaTest = "org.scalatest" %% "scalatest" % "3.0.8"
-    val sparkHive = "org.apache.spark" %% "spark-hive" % versions.spark
-    val sparkTestingBase = "com.holdenkarau" %% "spark-testing-base" % versions.sparkTestingBase
   }
-
-val flinkVersion = "1.10.1"
 
 val flinkDependencies = Seq(
   //"org.slf4j" % "slf4j-simple" % "1.7.30" % "provided",
-  "org.apache.flink" %% "flink-scala" % flinkVersion % "provided",
-  "org.apache.flink" %% "flink-streaming-scala" % flinkVersion % "provided",
-  "org.apache.flink" %% "flink-table-api-scala-bridge" % flinkVersion % "provided",
+  "org.apache.flink" %% "flink-scala" % versions.flink % "provided",
+  "org.apache.flink" %% "flink-streaming-scala" % versions.flink % "provided",
+  "org.apache.flink" %% "flink-table-api-scala-bridge" % versions.flink % "provided",
   // TODO: Tests won't run without this ... are we using blink or not?
-  "org.apache.flink" %% "flink-table-planner" % flinkVersion % "test",
-  "org.apache.flink" %% "flink-table-planner-blink" % flinkVersion % "provided",
+  "org.apache.flink" %% "flink-table-planner" % versions.flink % "test",
+  "org.apache.flink" %% "flink-table-planner-blink" % versions.flink % "provided",
   //"org.apache.flink" % "flink-csv" % flinkVersion % "provided",
-  "org.apache.flink" % "flink-avro" % flinkVersion % "provided",
-  "org.apache.flink" %% "flink-parquet" % flinkVersion,
+  "org.apache.flink" % "flink-avro" % versions.flink % "provided",
+  "org.apache.flink" %% "flink-parquet" % versions.flink,
   "org.apache.parquet" % "parquet-avro" % "1.10.0",
   ("org.apache.hadoop" % "hadoop-client" % "2.8.3")
     .exclude("commons-beanutils", "commons-beanutils")
     .exclude("commons-beanutils", "commons-beanutils-core"),
   "org.scalatest" %% "scalatest" % "3.0.8" % "test",
-  "org.apache.flink" %% "flink-test-utils" % flinkVersion % "test",
-  "org.apache.flink" %% "flink-runtime" % flinkVersion % "test",
+  "org.apache.flink" %% "flink-test-utils" % versions.flink % "test",
+  "org.apache.flink" %% "flink-runtime" % versions.flink % "test",
   // TODO: newer avro breaks flink serialization?
   "com.sksamuel.avro4s" %% "avro4s-core" % "2.0.4" % "test"
 )

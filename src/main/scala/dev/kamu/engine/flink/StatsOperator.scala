@@ -2,7 +2,6 @@ package dev.kamu.engine.flink
 
 import java.io.FileWriter
 import java.security.MessageDigest
-import java.time.Instant
 
 import org.apache.flink.runtime.state.StateSnapshotContext
 import org.apache.flink.streaming.api.operators.{
@@ -45,7 +44,7 @@ class StatsOperator(datasetID: String, path: String)
     writer.write(hash + "\n")
     writer.close()
 
-    logger.info(s"${getOperatorID()} Written stats to: $path")
+    logger.info(s"Written stats to: $path ($rowCount rows)")
     rowCount = 0
   }
 

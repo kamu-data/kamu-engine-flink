@@ -26,7 +26,7 @@ public class AvroConverter implements Serializable {
 
     private transient Schema schema;
 
-    AvroConverter(String avroSchema) {
+    public AvroConverter(String avroSchema) {
         stringSchema = avroSchema;
     }
 

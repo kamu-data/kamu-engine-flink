@@ -6,7 +6,8 @@ import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.table.api.scala._
+import org.apache.flink.table.api._
+import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.types.Row
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
@@ -105,10 +106,14 @@ class JoinStreamToTemporalTableTest
     val actual = sink.collectStr().sorted
 
     val expected = List(
-      "2000-01-01 00:00:00.0,A,100,-1000",
-      "2000-01-02 00:00:00.0,B,100,-13000",
-      "2000-01-05 00:00:00.0,A,-100,900",
-      "2000-01-05 00:00:00.0,B,100,-11000"
+      "2000-01-01T00:00,A,100,-1000",
+      "2000-01-02T00:00,B,100,-13000",
+      "2000-01-05T00:00,A,-100,900",
+      "2000-01-05T00:00,B,100,-11000"
+      //"2000-01-01 00:00:00.0,A,100,-1000",
+      //"2000-01-02 00:00:00.0,B,100,-13000",
+      //"2000-01-05 00:00:00.0,A,-100,900",
+      //"2000-01-05 00:00:00.0,B,100,-11000"
     ).sorted
 
     expected shouldEqual actual

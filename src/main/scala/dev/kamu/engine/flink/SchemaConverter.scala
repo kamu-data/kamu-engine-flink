@@ -6,6 +6,7 @@ import org.apache.avro.{LogicalTypes, Schema, SchemaBuilder}
 import org.apache.flink.table.api.TableSchema
 import org.apache.flink.table.types.logical.{
   BigIntType,
+  CharType,
   DecimalType,
   DoubleType,
   FloatType,
@@ -83,6 +84,8 @@ object SchemaConverter {
             b.`type`().nullable().doubleType().noDefault()
           case _: VarBinaryType =>
             b.`type`().nullable().bytesType().noDefault()
+          case _: CharType =>
+            b.`type`().nullable().stringType().noDefault()
           case _: VarCharType =>
             b.`type`().nullable().stringType().noDefault()
           case _: TimestampType =>

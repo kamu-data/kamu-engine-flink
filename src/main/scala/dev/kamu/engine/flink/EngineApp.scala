@@ -11,7 +11,7 @@ import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.Manifest
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.table.api.scala._
+import org.apache.flink.table.api.bridge.scala._
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
 import org.apache.log4j.LogManager

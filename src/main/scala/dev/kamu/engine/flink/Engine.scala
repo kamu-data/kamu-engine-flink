@@ -24,19 +24,22 @@ import org.apache.flink.api.java.typeutils.RowTypeInfo
 import org.apache.flink.core.fs.{Path => FlinkPath}
 import org.apache.flink.formats.parquet.ParquetRowInputFormat
 import org.apache.flink.streaming.api.datastream.DataStreamSource
-import org.apache.flink.streaming.api.functions.source.FileProcessingMode
+import org.apache.flink.streaming.api.functions.source.{
+  FileProcessingMode,
+  TimestampedFileInputSplit
+}
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.Table
-import org.apache.flink.table.api.scala._
+import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.table.expressions.ExpressionParser
 import org.apache.flink.table.typeutils.FieldInfoUtils
 import org.apache.flink.types.Row
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.{FileSystem, Path}
+import org.apache.log4j.LogManager
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.{MessageType, MessageTypeParser}
-import org.slf4j.LoggerFactory
 import spire.math.interval.{Closed, Open, Unbound}
 import spire.math.{All, Empty, Interval}
 
@@ -62,7 +65,7 @@ class Engine(
   env: StreamExecutionEnvironment,
   tEnv: StreamTableEnvironment
 ) {
-  private val logger = LoggerFactory.getLogger(getClass)
+  private val logger = LogManager.getLogger(getClass.getName)
 
   def executeQueryExtended(request: ExecuteQueryRequest): ExecuteQueryResult = {
     if (request.source.transformEngine != "flink")
@@ -93,7 +96,7 @@ class Engine(
       transform
     )
 
-    logger.info("Result schema:\n{}", resultTable.getSchema)
+    println(s"Result schema:\n${resultTable.getSchema}")
 
     // Computes row count and data hash
     val resultStream = resultTable
@@ -106,7 +109,7 @@ class Engine(
 
     // Convert to Avro so we can then save in Parquet :(
     val avroSchema = SchemaConverter.convert(resultTable.getSchema)
-    logger.info("Result schema in Avro format:\n{}", avroSchema.toString(true))
+    println(s"Result schema in Avro format:\n${avroSchema.toString(true)}")
 
     val avroConverter = new AvroConverter(avroSchema.toString())
     val avroStream =
@@ -287,7 +290,7 @@ class Engine(
         )
       }
 
-      logger.info("Self-canceling job {}", job.getJobID.toString)
+      logger.info(s"Self-canceling job ${job.getJobID.toString}")
       val out = Process(
         Seq(
           "flink",
@@ -408,11 +411,13 @@ class Engine(
             case Unbound() => Instant.MIN
             case Open(x)   => x
             case Closed(x) => x.minusMillis(1)
+            case _         => throw new RuntimeException("Unexpected")
           },
           interval.upperBound match {
             case Unbound() => Instant.MAX
             case Open(x)   => x
             case Closed(x) => x.plusMillis(1)
+            case _         => throw new RuntimeException("Unexpected")
           }
         )
     }
@@ -485,7 +490,7 @@ class Engine(
   ): DataStream[Row] = {
     // TODO: Ignoring schema evolution
     val schema = getSchemaFromFile(findFirstParquetFile(path).get)
-    logger.debug("Using following schema:\n{}", schema)
+    logger.debug(s"Using following schema:\n$schema")
 
     val messageType = MessageTypeParser.parseMessageType(schema.toString)
 
@@ -499,8 +504,7 @@ class Engine(
       path.toUri.getPath,
       FileProcessingMode.PROCESS_CONTINUOUSLY,
       500
-    )(inputFormat.getProducedType)
-     */
+    )(inputFormat.getProducedType)*/
 
     new DataStream[Row](
       createFileInput(
@@ -517,7 +521,7 @@ class Engine(
   }
 
   private def getSchemaFromFile(path: Path): MessageType = {
-    logger.debug("Loading schema from: {}", path)
+    logger.debug(s"Loading schema from: $path")
     val file = HadoopInputFile.fromPath(path, new Configuration())
     val reader = ParquetFileReader.open(file)
     val schema = reader.getFileMetaData.getSchema
@@ -552,18 +556,17 @@ class Engine(
         interval
       )
 
-    val reader =
-      new CustomFileReaderOperator[T](
+    val factory =
+      new CustomFileReaderOperatorFactory[T, TimestampedFileInputSplit](
         inputFormat,
         markerPath.toUri.getPath,
         prevWatermark.getOrElse(Instant.MIN),
         explicitWatermarks.map(_.eventTime).asJava
       )
-    //val reader = new ContinuousFileReaderOperator[T](inputFormat)
 
     val source = env.getJavaEnv
-      .addSource(monitoringFunction, sourceName)
-      .transform("Split Reader: " + sourceName, typeInfo, reader)
+      .addSource(monitoringFunction, sourceName.asInstanceOf[String])
+      .transform("Split Reader: " + sourceName, typeInfo, factory)
 
     new DataStreamSource(source)
   }
