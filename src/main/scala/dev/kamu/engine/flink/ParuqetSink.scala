@@ -18,8 +18,11 @@ import org.apache.parquet.hadoop.metadata.CompressionCodecName
 
 import scala.collection.mutable.ArrayBuffer
 
-class ParuqetSink(avroSchemaString: String, path: String)
-    extends RichSinkFunction[GenericRecord]
+class ParuqetSink(
+  avroSchemaString: String,
+  path: String,
+  flushOnClose: Boolean = false
+) extends RichSinkFunction[GenericRecord]
     with CheckpointedFunction {
   @transient private lazy val logger = LogManager.getLogger(getClass.getName)
 
@@ -83,6 +86,10 @@ class ParuqetSink(avroSchemaString: String, path: String)
   override def initializeState(context: FunctionInitializationContext): Unit = {}
 
   override def close(): Unit = {
+    // For testing purposes only
+    if (flushOnClose)
+      flush()
+
     if (rows.nonEmpty) {
       throw new RuntimeException(
         s"Closing with ${rows.size} rows still in the buffer"
