@@ -95,6 +95,8 @@ public class AvroConverter implements Serializable {
             case FIXED:
                 // check for logical type
                 if (object instanceof BigDecimal) {
+                    byte[] bytes = new byte[schema.getFixedSize()];
+                    byte[] decimalRepr = convertFromDecimal(schema, (BigDecimal) object);
                     return new GenericData.Fixed(
                             schema,
                             convertFromDecimal(schema, (BigDecimal) object));
@@ -138,7 +140,15 @@ public class AvroConverter implements Serializable {
             final BigDecimal rescaled = decimal.setScale(decimalType.getScale(), BigDecimal.ROUND_UNNECESSARY);
             // byte array must contain the two's-complement representation of the
             // unscaled integer value in big-endian byte order
-            return decimal.unscaledValue().toByteArray();
+            byte[] decimalRepr = rescaled.unscaledValue().toByteArray();
+            if(schema.getType() == Schema.Type.FIXED && schema.getFixedSize() != decimalRepr.length) {
+                // Need to re-scale
+                byte[] padded = new byte[schema.getFixedSize()];
+                int startAt = padded.length - decimalRepr.length;
+                System.arraycopy(decimalRepr, 0, padded, startAt, decimalRepr.length);
+                return padded;
+            }
+            return decimalRepr;
         } else {
             throw new RuntimeException("Unsupported decimal type.");
         }

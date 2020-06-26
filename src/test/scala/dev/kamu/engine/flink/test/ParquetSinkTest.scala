@@ -94,7 +94,7 @@ class ParquetSinkTest
         """
            SELECT
              event_time,
-             description,
+             CAST(description as VARCHAR(10)) as description,
              amount,
              price,
              CAST(amount * price as DECIMAL(18, 4)) as `value`
@@ -139,9 +139,9 @@ class ParquetSinkTest
           message Row {
             optional int64 event_time (TIMESTAMP_MILLIS);
             optional binary description (UTF8);
-            optional binary amount (DECIMAL(18,4));
-            optional binary price (DECIMAL(18,4));
-            optional binary value (DECIMAL(18,4));
+            optional fixed_len_byte_array(8) amount (DECIMAL(18,4));
+            optional fixed_len_byte_array(8) price (DECIMAL(18,4));
+            optional fixed_len_byte_array(8) value (DECIMAL(18,4));
           }
           """
       )

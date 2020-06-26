@@ -23,7 +23,7 @@ import org.slf4j.LoggerFactory
 class EngineRunner(
   fileSystem: FileSystem,
   dockerClient: DockerClient,
-  image: String = "kamudata/engine-flink:0.3.1",
+  image: String = "kamudata/engine-flink:0.3.2",
   networkName: String = "kamu-flink"
 ) {
   private val logger = LoggerFactory.getLogger(getClass)

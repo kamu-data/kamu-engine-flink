@@ -3,6 +3,7 @@ package dev.kamu.engine.flink
 import java.util
 
 import org.apache.avro.{LogicalTypes, Schema, SchemaBuilder}
+import org.apache.flink.formats.parquet.utils.ParquetSchemaConverter
 import org.apache.flink.table.api.TableSchema
 import org.apache.flink.table.types.logical.{
   BigIntType,
@@ -115,9 +116,12 @@ object SchemaConverter {
   }
 
   private def decimalSchema(precision: Int, scale: Int): Schema = {
+    val size =
+      ParquetSchemaConverter.computeMinBytesForDecimalPrecision(precision)
+
     LogicalTypes
       .decimal(precision, scale)
-      .addToSchema(Schema.create(Schema.Type.BYTES))
+      .addToSchema(Schema.createFixed("decimal", "", "", size))
   }
 
   private def nullable(schema: Schema): Schema = {
