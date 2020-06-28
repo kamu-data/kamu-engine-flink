@@ -10,8 +10,7 @@ import dev.kamu.core.manifests.DatasetLayout
 import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, Path}
+import dev.kamu.core.utils.Temp
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class StocksOwned(
@@ -36,12 +35,9 @@ class EngineJoinStreamToTemporalTableTest
     with BeforeAndAfter
     with TimeHelpers {
 
-  val fileSystem = FileSystem.get(new Configuration())
-
   test("Temporal table join") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
       val tickersLayout = tempLayout(tempDir, "tickers")
       val stocksOwnedLayout = tempLayout(tempDir, "stocks.owned")
@@ -192,9 +188,8 @@ class EngineJoinStreamToTemporalTableTest
   }
 
   test("Temporal table join with source watermark") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
       val tickersLayout = tempLayout(tempDir, "tickers")
       val stocksOwnedLayout = tempLayout(tempDir, "stocks.owned")

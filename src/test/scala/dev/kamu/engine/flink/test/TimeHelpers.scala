@@ -1,12 +1,12 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.Path
 import java.sql.Timestamp
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
 import dev.kamu.core.manifests.DatasetLayout
 import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, Watermark}
 import dev.kamu.core.utils.fs._
-import org.apache.hadoop.fs.Path
 
 trait TimeHelpers {
 

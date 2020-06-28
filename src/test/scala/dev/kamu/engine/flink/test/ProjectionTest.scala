@@ -6,7 +6,6 @@ import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.types.Row
@@ -14,13 +13,11 @@ import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 import scala.concurrent.duration
 
-class ProjectionTest extends FunSuite with Matchers with BeforeAndAfter {
-
-  def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
-    val dt = LocalDateTime.of(2000, 1, d, h, m)
-    val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
-    Timestamp.from(zdt.toInstant)
-  }
+class ProjectionTest
+    extends FunSuite
+    with Matchers
+    with BeforeAndAfter
+    with TimeHelpers {
 
   ignore("AS OF projection") {
     val env = StreamExecutionEnvironment.getExecutionEnvironment

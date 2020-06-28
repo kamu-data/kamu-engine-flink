@@ -8,8 +8,7 @@ import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FileSystem
+import dev.kamu.core.utils.Temp
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Order(
@@ -52,12 +51,9 @@ class EngineJoinStreamToStreamTest
     with BeforeAndAfter
     with TimeHelpers {
 
-  val fileSystem = FileSystem.get(new Configuration())
-
   test("Stream to stream join") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
       val ordersLayout = tempLayout(tempDir, "orders")
       val shipmentsLayout = tempLayout(tempDir, "shipments")
@@ -199,9 +195,8 @@ class EngineJoinStreamToStreamTest
   }
 
   test("Stream to stream join result can be used with other queries") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
       val ordersLayout = tempLayout(tempDir, "orders")
       val shipmentsLayout = tempLayout(tempDir, "shipments")
@@ -340,9 +335,8 @@ class EngineJoinStreamToStreamTest
   }
 
   test("Stream to stream join result can be used with other queries (tricky)") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
       val ordersLayout = tempLayout(tempDir, "orders")
       val shipmentsLayout = tempLayout(tempDir, "shipments")

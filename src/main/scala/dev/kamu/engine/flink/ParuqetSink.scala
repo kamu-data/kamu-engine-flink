@@ -1,6 +1,6 @@
 package dev.kamu.engine.flink
 
-import org.apache.avro.{Conversions, Schema}
+import org.apache.avro.Schema
 import org.apache.avro.generic.{GenericData, GenericRecord}
 import org.apache.flink.runtime.state.{
   FunctionInitializationContext,
@@ -12,7 +12,7 @@ import org.apache.flink.streaming.api.functions.sink.{
   SinkFunction
 }
 import org.apache.hadoop.fs.Path
-import org.apache.log4j.LogManager
+import org.apache.logging.log4j.LogManager
 import org.apache.parquet.avro.AvroParquetWriter
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
 

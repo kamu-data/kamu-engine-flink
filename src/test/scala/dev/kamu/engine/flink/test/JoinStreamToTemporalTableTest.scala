@@ -16,13 +16,8 @@ import scala.concurrent.duration
 class JoinStreamToTemporalTableTest
     extends FunSuite
     with Matchers
-    with BeforeAndAfter {
-
-  def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
-    val dt = LocalDateTime.of(2000, 1, d, h, m)
-    val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
-    Timestamp.from(zdt.toInstant)
-  }
+    with BeforeAndAfter
+    with TimeHelpers {
 
   test("Temporal table join") {
     val env = StreamExecutionEnvironment.getExecutionEnvironment

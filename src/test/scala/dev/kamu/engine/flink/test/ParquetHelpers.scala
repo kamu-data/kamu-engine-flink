@@ -1,5 +1,7 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.Path
+
 import com.sksamuel.avro4s.{
   AvroSchema,
   Decoder,
@@ -8,7 +10,6 @@ import com.sksamuel.avro4s.{
   SchemaFor
 }
 import org.apache.avro.generic.{GenericData, GenericRecord}
-import org.apache.hadoop.fs.Path
 import org.apache.parquet.avro.{AvroParquetReader, AvroParquetWriter}
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
 
@@ -24,7 +25,7 @@ object ParquetHelpers {
     println(avroSchema.toString(true))
 
     val writer = AvroParquetWriter
-      .builder[GenericRecord](path)
+      .builder[GenericRecord](new org.apache.hadoop.fs.Path(path.toUri))
       .withSchema(avroSchema)
       .withDataModel(GenericData.get)
       .withCompressionCodec(CompressionCodecName.SNAPPY)
@@ -42,7 +43,7 @@ object ParquetHelpers {
 
     val reader =
       AvroParquetReader
-        .builder[GenericRecord](path)
+        .builder[GenericRecord](new org.apache.hadoop.fs.Path(path.toUri))
         .withDataModel(GenericData.get)
         .build()
 

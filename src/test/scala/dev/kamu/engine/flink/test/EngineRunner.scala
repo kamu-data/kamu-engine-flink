@@ -1,6 +1,9 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.{Path, Paths}
 import java.sql.Timestamp
+
+import better.files.File
 
 import scala.concurrent.duration._
 import pureconfig.generic.auto._
@@ -8,8 +11,7 @@ import dev.kamu.core.manifests.Manifest
 import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, ExecuteQueryResult}
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.utils.fs._
-import dev.kamu.core.utils.fs.Temp
+import dev.kamu.core.utils.Temp
 import dev.kamu.core.utils.{
   DockerClient,
   DockerProcessBuilder,
@@ -17,11 +19,9 @@ import dev.kamu.core.utils.{
   ExecArgs,
   IOHandlerPresets
 }
-import org.apache.hadoop.fs.{FileSystem, Path}
 import org.slf4j.LoggerFactory
 
 class EngineRunner(
-  fileSystem: FileSystem,
   dockerClient: DockerClient,
   image: String = "kamudata/engine-flink:0.3.2",
   networkName: String = "kamu-flink"
@@ -33,25 +33,18 @@ class EngineRunner(
     workspaceDir: Path,
     systemTime: Timestamp
   ): ExecuteQueryResult = {
-    val engineJar = new Path(".")
-      .resolve("target", "scala-2.12", "engine.flink.jar")
+    val engineJar = Paths.get("target", "scala-2.12", "engine.flink.jar")
 
-    if (!fileSystem.exists(engineJar))
+    if (!File(engineJar).exists)
       throw new RuntimeException(s"Assembly does not exist: $engineJar")
 
-    val inOutDirInContainer = new Path("/opt/engine/in-out")
-    val engineJarInContainer = new Path("/opt/engine/bin/engine.flink.jar")
+    val inOutDirInContainer = Paths.get("/opt/engine/in-out")
+    val engineJarInContainer = Paths.get("/opt/engine/bin/engine.flink.jar")
 
     val volumeMap = Map(workspaceDir -> workspaceDir)
 
-    Temp.withRandomTempDir(
-      fileSystem,
-      "kamu-inout-"
-    ) { inOutDir =>
-      val outputStream =
-        fileSystem.create(inOutDir.resolve("request.yaml"), false)
-      yaml.save(Manifest(request), outputStream)
-      outputStream.close()
+    Temp.withRandomTempDir("kamu-inout-") { inOutDir =>
+      yaml.save(Manifest(request), inOutDir.resolve("request.yaml"))
 
       dockerClient.withNetwork(networkName) {
 
@@ -138,10 +131,9 @@ class EngineRunner(
         }
       }
 
-      val inputStream = fileSystem.open(inOutDir.resolve("result.yaml"))
-      val result = yaml.load[Manifest[ExecuteQueryResult]](inputStream).content
-      inputStream.close()
-      result
+      yaml
+        .load[Manifest[ExecuteQueryResult]](inOutDir.resolve("result.yaml"))
+        .content
     }
   }
 
@@ -149,13 +141,13 @@ class EngineRunner(
     val checkpointsDir =
       request.datasetLayouts(request.datasetID.toString).checkpointsDir
 
-    if (!fileSystem.exists(checkpointsDir))
+    if (!File(checkpointsDir).exists)
       return None
 
-    val allSavepoints = fileSystem
-      .listStatus(checkpointsDir)
-      .map(_.getPath)
-      .filter(fileSystem.isDirectory)
+    val allSavepoints = File(checkpointsDir).list
+      .filter(_.isDirectory)
+      .map(_.path)
+      .toList
 
     // TODO: Atomicity
     if (allSavepoints.length > 1)
@@ -175,6 +167,6 @@ class EngineRunner(
 
     logger.info("Deleting savepoint: {}", oldSavepoint)
 
-    oldSavepoint.foreach(fileSystem.delete(_, true))
+    oldSavepoint.foreach(p => File(p).delete(true))
   }
 }

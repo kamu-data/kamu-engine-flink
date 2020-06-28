@@ -13,13 +13,11 @@ import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 import scala.concurrent.duration
 
-class AggregationTest extends FunSuite with Matchers with BeforeAndAfter {
-
-  def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
-    val dt = LocalDateTime.of(2000, 1, d, h, m)
-    val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)
-    Timestamp.from(zdt.toInstant)
-  }
+class AggregationTest
+    extends FunSuite
+    with Matchers
+    with BeforeAndAfter
+    with TimeHelpers {
 
   test("Tumbling window aggregation") {
     val env = StreamExecutionEnvironment.getExecutionEnvironment

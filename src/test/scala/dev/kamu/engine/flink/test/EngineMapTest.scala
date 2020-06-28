@@ -1,16 +1,11 @@
 package dev.kamu.engine.flink.test
 
-import java.sql.Timestamp
-import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
-
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.infra.ExecuteQueryRequest
-import dev.kamu.core.utils.DockerClient
+import dev.kamu.core.utils.{DockerClient, Temp}
 import dev.kamu.core.utils.fs._
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FileSystem
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 class EngineMapTest
@@ -19,16 +14,13 @@ class EngineMapTest
     with BeforeAndAfter
     with TimeHelpers {
 
-  val fileSystem = FileSystem.get(new Configuration())
-
   test("Simple map") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
-      val inputDataDir = tempDir.resolve("data", "in")
-      val outputDataDir = tempDir.resolve("data", "out")
-      val outputCheckpointDir = tempDir.resolve("checkpoints", "out")
+      val inputDataDir = tempDir / "data" / "in"
+      val outputDataDir = tempDir / "data" / "out"
+      val outputCheckpointDir = tempDir / "checkpoints" / "out"
 
       val request = yaml.load[ExecuteQueryRequest](
         s"""

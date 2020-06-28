@@ -11,7 +11,7 @@ import org.apache.flink.streaming.api.operators.{
 import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord
 import org.apache.flink.types.Row
-import org.apache.log4j.LogManager
+import org.apache.logging.log4j.LogManager
 
 class StatsOperator(datasetID: String, path: String)
     extends AbstractStreamOperator[Row]

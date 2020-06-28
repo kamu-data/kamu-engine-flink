@@ -1,10 +1,11 @@
 package dev.kamu.engine.flink
 
-import java.io.File
+import java.nio.file.Path
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.Scanner
 
+import better.files.File
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
@@ -34,9 +35,7 @@ import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.table.expressions.ExpressionParser
 import org.apache.flink.table.typeutils.FieldInfoUtils
 import org.apache.flink.types.Row
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, Path}
-import org.apache.log4j.LogManager
+import org.apache.logging.log4j.LogManager
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.{MessageType, MessageTypeParser}
@@ -44,7 +43,6 @@ import spire.math.interval.{Closed, Open, Unbound}
 import spire.math.{All, Empty, Interval}
 
 import scala.collection.JavaConverters._
-import scala.concurrent.duration.Duration
 import scala.sys.process.Process
 
 case class InputSlice(
@@ -60,7 +58,6 @@ case class SliceStats(
 )
 
 class Engine(
-  fileSystem: FileSystem,
   systemClock: Clock,
   env: StreamExecutionEnvironment,
   tEnv: StreamTableEnvironment
@@ -79,7 +76,7 @@ class Engine(
     val checkpointsDir =
       request.datasetLayouts(request.datasetID.toString).checkpointsDir
 
-    fileSystem.mkdirs(checkpointsDir)
+    File(checkpointsDir).createDirectories()
 
     val inputSlices =
       prepareInputSlices(
@@ -163,9 +160,7 @@ class Engine(
 
     ExecuteQueryResult(
       block = block,
-      dataFileName =
-        if (fileSystem.exists(dataFilePath)) Some(dataFilePath.getName)
-        else None
+      dataFileName = Some(File(dataFilePath)).filter(_.exists).map(_.name)
     )
   }
 
@@ -276,7 +271,7 @@ class Engine(
     }
 
     def inputsExhausted(): Boolean = {
-      inputSlices.values.forall(i => fileSystem.exists(i.markerPath))
+      inputSlices.values.forall(i => File(i.markerPath).exists)
     }
 
     try {
@@ -303,7 +298,7 @@ class Engine(
 
       println(s"OUTPUT: $out")
     } finally {
-      inputSlices.values.foreach(i => fileSystem.delete(i.markerPath, false))
+      inputSlices.values.foreach(i => File(i.markerPath).delete(true))
     }
   }
 
@@ -450,11 +445,11 @@ class Engine(
   }
 
   private def readStats(path: Path): Option[SliceStats] = {
-    if (!fileSystem.exists(path))
+    if (!File(path).exists)
       return None
 
     try {
-      val reader = new Scanner(new File(path.toUri.getPath))
+      val reader = new Scanner(path)
 
       val sRowCount = reader.nextLine()
       val sLastWatermark = reader.nextLine()
@@ -522,7 +517,10 @@ class Engine(
 
   private def getSchemaFromFile(path: Path): MessageType = {
     logger.debug(s"Loading schema from: $path")
-    val file = HadoopInputFile.fromPath(path, new Configuration())
+    val file = HadoopInputFile.fromPath(
+      new org.apache.hadoop.fs.Path(path.toUri),
+      new org.apache.hadoop.conf.Configuration()
+    )
     val reader = ParquetFileReader.open(file)
     val schema = reader.getFileMetaData.getSchema
     reader.close()
@@ -530,11 +528,7 @@ class Engine(
   }
 
   private def findFirstParquetFile(path: Path): Option[Path] = {
-    for (f <- fileSystem.listStatus(path)) {
-      if (f.getPath.getName.endsWith(".parquet"))
-        return Some(f.getPath)
-    }
-    None
+    File(path).glob("*.parquet").map(_.path).toSeq.headOption
   }
 
   // TODO: This env method is overridden to customize file reader behavior

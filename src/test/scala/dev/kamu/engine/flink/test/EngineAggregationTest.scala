@@ -1,7 +1,6 @@
 package dev.kamu.engine.flink.test
 
 import java.sql.Timestamp
-import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
@@ -10,8 +9,7 @@ import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, Watermark}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.FileSystem
+import dev.kamu.core.utils.Temp
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 import spire.math.Interval
 
@@ -36,12 +34,9 @@ class EngineAggregationTest
     with BeforeAndAfter
     with TimeHelpers {
 
-  val fileSystem = FileSystem.get(new Configuration())
-
   test("Tumbling window aggregation - ordered") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
       val inputDataDir = tempDir.resolve("data", "in")
       val outputDataDir = tempDir.resolve("data", "out")
@@ -231,9 +226,8 @@ class EngineAggregationTest
   }
 
   test("Tumbling window aggregation - late data") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
-      val engineRunner =
-        new EngineRunner(fileSystem, new DockerClient(fileSystem))
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
 
       val inputDataDir = tempDir.resolve("data", "in")
       val outputDataDir = tempDir.resolve("data", "out")

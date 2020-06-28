@@ -14,33 +14,6 @@ import scala.util.Random
 object SchemaConverter {
   def convert(tableSchema: TableSchema): Schema = {
     convertRow("Row", tableSchema)
-    /*SchemaBuilder
-      .record("Row")
-      .fields()
-      .name("system_time")
-      .`type`(timestampMilliType)
-      .noDefault()
-      .name("TAX_ASSESSMENT_YEAR")
-      .`type`()
-      .nullable()
-      .stringType()
-      .noDefault()
-      .name("PID")
-      .`type`()
-      .nullable()
-      .stringType()
-      .noDefault()
-      .name("CURRENT_LAND_VALUE")
-      .`type`()
-      .nullable()
-      .stringType()
-      .noDefault()
-      .name("CURRENT_IMPROVEMENT_VALUE")
-      .`type`()
-      .nullable()
-      .stringType()
-      .noDefault()
-      .endRecord()*/
   }
 
   protected def convertRow(

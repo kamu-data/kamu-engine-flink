@@ -37,14 +37,9 @@ lazy val kamuCoreUtils = project
   //.enablePlugins(AutomateHeaderPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      deps.hadoopCommon % "provided",
+      deps.betterFiles,
+      deps.log4jApi,
       deps.scalaTest % "test"
-      //deps.sparkCore % "provided",
-      //deps.sparkHive % "provided",
-      //deps.geoSpark % "test",
-      //deps.geoSparkSql % "test",
-      //deps.sparkTestingBase % "test",
-      //deps.sparkHive % "test"
     )
     //commonSettings,
     //sparkTestingSettings
@@ -58,7 +53,7 @@ lazy val kamuCoreManifests = project
   //.enablePlugins(AutomateHeaderPlugin)
   .settings(
     libraryDependencies ++= Seq(
-      deps.hadoopCommon % "provided",
+      deps.betterFiles,
       deps.pureConfig,
       deps.pureConfigYaml,
       deps.spire
@@ -71,22 +66,21 @@ lazy val kamuCoreManifests = project
 //////////////////////////////////////////////////////////////////////////////
 
 lazy val versions = new {
+  val log4j = "2.13.3"
+  val betterFiles = "3.9.1"
   val flink = "1.12-SNAPSHOT"
-  val hadoopCommon = "2.6.5"
   val pureConfig = "0.11.1"
   val spire = "0.13.0" // Used by spark too
 }
 
 lazy val deps =
   new {
+    val log4jApi = "org.apache.logging.log4j" % "log4j-api" % versions.log4j
+    // File System
+    val betterFiles = "com.github.pathikrit" %% "better-files" % versions.betterFiles
     // Configs
     val pureConfig = "com.github.pureconfig" %% "pureconfig" % versions.pureConfig
     val pureConfigYaml = "com.github.pureconfig" %% "pureconfig-yaml" % versions.pureConfig
-    // Hadoop File System
-    val hadoopCommon =
-      ("org.apache.hadoop" % "hadoop-common" % versions.hadoopCommon)
-        .exclude("commons-beanutils", "commons-beanutils")
-        .exclude("commons-beanutils", "commons-beanutils-core")
     // Math
     // TODO: Using older version as it's also used by Spark
     //val spire = "org.typelevel" %% "spire" % versions.spire
@@ -96,7 +90,8 @@ lazy val deps =
   }
 
 val flinkDependencies = Seq(
-  //"org.slf4j" % "slf4j-simple" % "1.7.30" % "provided",
+  deps.log4jApi,
+  deps.betterFiles,
   "org.apache.flink" %% "flink-scala" % versions.flink % "provided",
   "org.apache.flink" %% "flink-streaming-scala" % versions.flink % "provided",
   "org.apache.flink" %% "flink-table-api-scala-bridge" % versions.flink % "provided",

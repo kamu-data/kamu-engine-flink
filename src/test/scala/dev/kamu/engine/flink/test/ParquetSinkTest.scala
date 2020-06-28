@@ -1,17 +1,17 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.Path
 import java.sql.Timestamp
 
 import com.sksamuel.avro4s.ScalePrecisionRoundingMode
-import dev.kamu.core.utils.fs.{Temp, _}
+import dev.kamu.core.utils.fs._
+import dev.kamu.core.utils.Temp
 import dev.kamu.engine.flink.{AvroConverter, ParuqetSink, SchemaConverter}
 import org.apache.flink.formats.parquet.ParquetRowInputFormat
 import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.bridge.scala._
-import org.apache.hadoop.conf.Configuration
-import org.apache.hadoop.fs.{FileSystem, Path}
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 import org.apache.flink.core.fs.{Path => FlinkPath}
 import org.apache.flink.types.Row
@@ -34,10 +34,11 @@ class ParquetSinkTest
     with BeforeAndAfter
     with TimeHelpers {
 
-  val fileSystem = FileSystem.get(new Configuration())
-
   def getParquetSchema(path: Path): MessageType = {
-    val file = HadoopInputFile.fromPath(path, new Configuration())
+    val file = HadoopInputFile.fromPath(
+      new org.apache.hadoop.fs.Path(path.toUri),
+      new org.apache.hadoop.conf.Configuration()
+    )
     val reader = ParquetFileReader.open(file)
     val messageType = reader.getFileMetaData.getSchema
     reader.close()
@@ -45,7 +46,7 @@ class ParquetSinkTest
   }
 
   test("Parquet sink") {
-    Temp.withRandomTempDir(fileSystem, "kamu-engine-flink") { tempDir =>
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       implicit val sp =
         ScalePrecisionRoundingMode(4, 18, RoundingMode.UNNECESSARY)
 
