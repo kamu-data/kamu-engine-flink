@@ -1,12 +1,10 @@
 package dev.kamu.engine.flink.test
 
 import java.sql.Timestamp
-import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.DatasetLayout
 import dev.kamu.core.manifests.infra.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
@@ -74,22 +72,11 @@ class EngineJoinStreamToTemporalTableTest
            |  stocks.owned:
            |    interval: "(-inf, inf)"
            |    explicitWatermarks: []
-           |datasetLayouts:
-           |  tickers:
-           |    metadataDir: /none
-           |    dataDir: ${tickersLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  stocks.owned:
-           |    metadataDir: /none
-           |    dataDir: ${stocksOwnedLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  stocks.current-value:
-           |    metadataDir: /none
-           |    dataDir: ${currentValueLayout.dataDir}
-           |    checkpointsDir: ${currentValueLayout.checkpointsDir}
-           |    cacheDir: /none
+           |dataDirs:
+           |  tickers: ${tickersLayout.dataDir}
+           |  stocks.owned: ${stocksOwnedLayout.dataDir}
+           |  stocks.current-value: ${currentValueLayout.dataDir}
+           |checkpointsDir: ${currentValueLayout.checkpointsDir}
            |datasetVocabs:
            |  tickers: {}
            |  stocks.owned: {}
@@ -226,22 +213,11 @@ class EngineJoinStreamToTemporalTableTest
            |  stocks.owned:
            |    interval: "(-inf, inf)"
            |    explicitWatermarks: []
-           |datasetLayouts:
-           |  tickers:
-           |    metadataDir: /none
-           |    dataDir: ${tickersLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  stocks.owned:
-           |    metadataDir: /none
-           |    dataDir: ${stocksOwnedLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  stocks.current-value:
-           |    metadataDir: /none
-           |    dataDir: ${currentValueLayout.dataDir}
-           |    checkpointsDir: ${currentValueLayout.checkpointsDir}
-           |    cacheDir: /none
+           |dataDirs:
+           |  tickers: ${tickersLayout.dataDir}
+           |  stocks.owned: ${stocksOwnedLayout.dataDir}
+           |  stocks.current-value: ${currentValueLayout.dataDir}
+           |checkpointsDir: ${currentValueLayout.checkpointsDir}
            |datasetVocabs:
            |  tickers: {}
            |  stocks.owned: {}

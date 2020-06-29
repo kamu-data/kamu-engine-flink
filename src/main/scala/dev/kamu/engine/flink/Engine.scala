@@ -1,6 +1,6 @@
 package dev.kamu.engine.flink
 
-import java.nio.file.Path
+import java.nio.file.{Path, Paths}
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.Scanner
@@ -73,8 +73,7 @@ class Engine(
     val transform =
       yaml.load[TransformKind.Flink](request.source.transform.toConfig)
 
-    val checkpointsDir =
-      request.datasetLayouts(request.datasetID.toString).checkpointsDir
+    val checkpointsDir = Paths.get(request.checkpointsDir)
 
     File(checkpointsDir).createDirectories()
 
@@ -82,7 +81,7 @@ class Engine(
       prepareInputSlices(
         typedMap(request.inputSlices),
         typedMap(request.datasetVocabs),
-        typedMap(request.datasetLayouts),
+        typedMap(request.dataDirs.mapValues(s => Paths.get(s))),
         checkpointsDir
       )
 
@@ -112,9 +111,8 @@ class Engine(
     val avroStream =
       resultStream.map(r => avroConverter.convertRowToAvroRecord(r))
 
-    val dataFilePath = request
-      .datasetLayouts(request.datasetID.toString)
-      .dataDir
+    val dataFilePath = Paths
+      .get(request.dataDirs(request.datasetID.toString))
       .resolve(
         systemClock
           .instant()
@@ -131,7 +129,7 @@ class Engine(
 
     processAvailableAndStopWithSavepoint(
       inputSlices,
-      request.datasetLayouts(request.datasetID.toString).checkpointsDir
+      Paths.get(request.checkpointsDir)
     )
 
     val stats =
@@ -305,7 +303,7 @@ class Engine(
   private def prepareInputSlices(
     inputSlices: Map[DatasetID, InputDataSlice],
     inputVocabs: Map[DatasetID, DatasetVocabulary],
-    inputLayouts: Map[DatasetID, DatasetLayout],
+    inputDataDirs: Map[DatasetID, Path],
     checkpointsDir: Path
   ): Map[DatasetID, InputSlice] = {
     inputSlices.keys.toSeq
@@ -317,7 +315,7 @@ class Engine(
             id,
             inputSlices(id),
             inputVocabs(id).withDefaults(),
-            inputLayouts(id),
+            inputDataDirs(id),
             checkpointsDir
           )
         )
@@ -329,7 +327,7 @@ class Engine(
     id: DatasetID,
     slice: InputDataSlice,
     vocab: DatasetVocabulary,
-    layout: DatasetLayout,
+    dataDir: Path,
     checkpointsDir: Path
   ): InputSlice = {
     val markerPath = checkpointsDir.resolve(s"$id.marker")
@@ -342,7 +340,7 @@ class Engine(
       sliceData(
         openStream(
           id,
-          layout.dataDir,
+          dataDir,
           markerPath,
           prevStats.flatMap(_.lastWatermark),
           slice.explicitWatermarks

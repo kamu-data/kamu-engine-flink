@@ -138,13 +138,12 @@ class EngineRunner(
   }
 
   protected def getPrevSavepoint(request: ExecuteQueryRequest): Option[Path] = {
-    val checkpointsDir =
-      request.datasetLayouts(request.datasetID.toString).checkpointsDir
+    val checkpointsDir = File(request.checkpointsDir)
 
-    if (!File(checkpointsDir).exists)
+    if (!checkpointsDir.exists)
       return None
 
-    val allSavepoints = File(checkpointsDir).list
+    val allSavepoints = checkpointsDir.list
       .filter(_.isDirectory)
       .map(_.path)
       .toList

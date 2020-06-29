@@ -62,17 +62,10 @@ class EngineAggregationTest
            |  in:
            |    interval: "(-inf, inf)"
            |    explicitWatermarks: []
-           |datasetLayouts:
-           |  in:
-           |    metadataDir: /none
-           |    dataDir: $inputDataDir
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  out:
-           |    metadataDir: /none
-           |    dataDir: $outputDataDir
-           |    checkpointsDir: $outputCheckpointDir
-           |    cacheDir: /none
+           |dataDirs:
+           |  in: $inputDataDir
+           |  out: $outputDataDir
+           |checkpointsDir: $outputCheckpointDir
            |datasetVocabs:
            |  in: {}
            |  out: {}
@@ -253,17 +246,10 @@ class EngineAggregationTest
           |  in:
           |    interval: "(-inf, inf)"
           |    explicitWatermarks: []
-          |datasetLayouts:
-          |  in:
-          |    metadataDir: /none
-          |    dataDir: $inputDataDir
-          |    checkpointsDir: /none
-          |    cacheDir: /none
-          |  out:
-          |    metadataDir: /none
-          |    dataDir: $outputDataDir
-          |    checkpointsDir: $outputCheckpointDir
-          |    cacheDir: /none
+          |dataDirs:
+          |  in: $inputDataDir
+          |  out: $outputDataDir
+          |checkpointsDir: $outputCheckpointDir
           |datasetVocabs:
           |  in: {}
           |  out: {}

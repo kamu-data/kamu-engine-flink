@@ -88,22 +88,11 @@ class EngineJoinStreamToStreamTest
            |  shipments:
            |    interval: "(-inf, inf)"
            |    explicitWatermarks: []
-           |datasetLayouts:
-           |  orders:
-           |    metadataDir: /none
-           |    dataDir: ${ordersLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  shipments:
-           |    metadataDir: /none
-           |    dataDir: ${shipmentsLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  shipped_orders:
-           |    metadataDir: /none
-           |    dataDir: ${shippedOrdersLayout.dataDir}
-           |    checkpointsDir: ${shippedOrdersLayout.checkpointsDir}
-           |    cacheDir: /none
+           |dataDirs:
+           |  orders: ${ordersLayout.dataDir}
+           |  shipments: ${shipmentsLayout.dataDir}
+           |  shipped_orders: ${shippedOrdersLayout.dataDir}
+           |checkpointsDir: ${shippedOrdersLayout.checkpointsDir}
            |datasetVocabs:
            |  orders: {}
            |  shipments: {}
@@ -250,22 +239,11 @@ class EngineJoinStreamToStreamTest
            |  shipments:
            |    interval: "(-inf, inf)"
            |    explicitWatermarks: []
-           |datasetLayouts:
-           |  orders:
-           |    metadataDir: /none
-           |    dataDir: ${ordersLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  shipments:
-           |    metadataDir: /none
-           |    dataDir: ${shipmentsLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  late_orders:
-           |    metadataDir: /none
-           |    dataDir: ${lateOrdersLayout.dataDir}
-           |    checkpointsDir: ${lateOrdersLayout.checkpointsDir}
-           |    cacheDir: /none
+           |dataDirs:
+           |  orders: ${ordersLayout.dataDir}
+           |  shipments: ${shipmentsLayout.dataDir}
+           |  late_orders: ${lateOrdersLayout.dataDir}
+           |checkpointsDir: ${lateOrdersLayout.checkpointsDir}
            |datasetVocabs:
            |  orders: {}
            |  shipments: {}
@@ -390,22 +368,11 @@ class EngineJoinStreamToStreamTest
            |  shipments:
            |    interval: "(-inf, inf)"
            |    explicitWatermarks: []
-           |datasetLayouts:
-           |  orders:
-           |    metadataDir: /none
-           |    dataDir: ${ordersLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  shipments:
-           |    metadataDir: /none
-           |    dataDir: ${shipmentsLayout.dataDir}
-           |    checkpointsDir: /none
-           |    cacheDir: /none
-           |  late_orders:
-           |    metadataDir: /none
-           |    dataDir: ${lateOrdersLayout.dataDir}
-           |    checkpointsDir: ${lateOrdersLayout.checkpointsDir}
-           |    cacheDir: /none
+           |dataDirs:
+           |  orders: ${ordersLayout.dataDir}
+           |  shipments: ${shipmentsLayout.dataDir}
+           |  late_orders: ${lateOrdersLayout.dataDir}
+           |checkpointsDir: ${lateOrdersLayout.checkpointsDir}
            |datasetVocabs:
            |  orders: {}
            |  shipments: {}
