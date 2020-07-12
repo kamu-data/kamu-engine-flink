@@ -47,7 +47,7 @@ class EngineAggregationTest
            |datasetID: out
            |source:
            |  inputs:
-           |    - id: in
+           |    - in
            |  transform:
            |    engine: flink
            |    query: >
@@ -97,7 +97,7 @@ class EngineAggregationTest
           ts(10)
         )
 
-        result.block.inputSlices(0).numRecords shouldEqual 12
+        result.block.inputSlices.get.apply(0).numRecords shouldEqual 12
         result.block.outputSlice.get.numRecords shouldEqual 4
         result.block.outputSlice.get.interval shouldEqual Interval.point(
           ts(10).toInstant
@@ -137,7 +137,7 @@ class EngineAggregationTest
           ts(20)
         )
 
-        result.block.inputSlices(0).numRecords shouldEqual 8
+        result.block.inputSlices.get.apply(0).numRecords shouldEqual 8
         result.block.outputSlice.get.numRecords shouldEqual 4
         result.block.outputWatermark.get shouldEqual ts(5, 2).toInstant
 
@@ -168,7 +168,7 @@ class EngineAggregationTest
           ts(30)
         )
 
-        result.block.inputSlices(0).numRecords shouldEqual 2
+        result.block.inputSlices.get.apply(0).numRecords shouldEqual 2
         result.block.outputSlice.get.numRecords shouldEqual 2
         result.block.outputWatermark.get shouldEqual ts(6, 1).toInstant
 
@@ -189,7 +189,7 @@ class EngineAggregationTest
           ts(31)
         )
 
-        result.block.inputSlices(0).numRecords shouldEqual 0
+        result.block.inputSlices.get.apply(0).numRecords shouldEqual 0
         result.block.outputSlice.get.numRecords shouldEqual 2
         result.block.outputWatermark.get shouldEqual ts(7, 1).toInstant
 
@@ -211,7 +211,7 @@ class EngineAggregationTest
           ts(31)
         )
 
-        result.block.inputSlices(0).numRecords shouldEqual 0
+        result.block.inputSlices.get.apply(0).numRecords shouldEqual 0
         result.block.outputSlice.get.numRecords shouldEqual 0
         result.block.outputWatermark.get shouldEqual ts(8).toInstant
       }
@@ -231,7 +231,7 @@ class EngineAggregationTest
           |datasetID: out
           |source:
           |  inputs:
-          |    - id: in
+          |    - in
           |  transform:
           |    engine: flink
           |    query: >
@@ -282,7 +282,7 @@ class EngineAggregationTest
           ts(10)
         )
 
-        result.block.inputSlices(0).numRecords shouldEqual 13
+        result.block.inputSlices.get.apply(0).numRecords shouldEqual 13
         result.block.outputSlice.get.numRecords shouldEqual 2
         result.block.outputWatermark.get shouldEqual ts(2, 2).toInstant
 
@@ -316,7 +316,7 @@ class EngineAggregationTest
           ts(20)
         )
 
-        result.block.inputSlices(0).numRecords shouldEqual 7
+        result.block.inputSlices.get.apply(0).numRecords shouldEqual 7
         result.block.outputSlice.get.numRecords shouldEqual 4
         result.block.outputWatermark.get shouldEqual ts(4, 1).toInstant
 

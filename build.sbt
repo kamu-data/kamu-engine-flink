@@ -69,7 +69,7 @@ lazy val versions = new {
   val log4j = "2.13.3"
   val betterFiles = "3.9.1"
   val flink = "1.12-SNAPSHOT"
-  val pureConfig = "0.11.1"
+  val pureConfig = "0.13.0"
   val spire = "0.13.0" // Used by spark too
 }
 

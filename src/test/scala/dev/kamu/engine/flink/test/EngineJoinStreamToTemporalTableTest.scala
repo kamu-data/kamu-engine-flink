@@ -46,8 +46,8 @@ class EngineJoinStreamToTemporalTableTest
            |datasetID: stocks.current-value
            |source:
            |  inputs:
-           |    - id: tickers
-           |    - id: stocks.owned
+           |    - tickers
+           |    - stocks.owned
            |  transform:
            |    engine: flink
            |    temporalTables:
@@ -187,8 +187,8 @@ class EngineJoinStreamToTemporalTableTest
            |datasetID: stocks.current-value
            |source:
            |  inputs:
-           |    - id: tickers
-           |    - id: stocks.owned
+           |    - tickers
+           |    - stocks.owned
            |  transform:
            |    engine: flink
            |    temporalTables:

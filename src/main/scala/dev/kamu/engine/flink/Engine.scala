@@ -6,6 +6,7 @@ import java.time.Instant
 import java.util.Scanner
 
 import better.files.File
+import com.typesafe.config.ConfigObject
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
@@ -65,13 +66,7 @@ class Engine(
   private val logger = LogManager.getLogger(getClass.getName)
 
   def executeQueryExtended(request: ExecuteQueryRequest): ExecuteQueryResult = {
-    if (request.source.transformEngine != "flink")
-      throw new RuntimeException(
-        s"Invalid engine: ${request.source.transformEngine}"
-      )
-
-    val transform =
-      yaml.load[TransformKind.Flink](request.source.transform.toConfig)
+    val transform = loadTransform(request.source.transform)
 
     val checkpointsDir = Paths.get(request.checkpointsDir)
 
@@ -136,6 +131,7 @@ class Engine(
       gatherStats(request.datasetID :: inputSlices.keys.toList, checkpointsDir)
 
     val block = MetadataBlock(
+      blockHash = "",
       prevBlockHash = "",
       systemTime = systemClock.instant(),
       outputSlice = Some(
@@ -146,13 +142,15 @@ class Engine(
         )
       ),
       outputWatermark = stats(request.datasetID).lastWatermark,
-      inputSlices = request.source.inputs.map(
-        i =>
-          DataSlice(
-            hash = stats(i.id).hash,
-            interval = inputSlices(i.id).interval,
-            numRecords = stats(i.id).numRecords
-          )
+      inputSlices = Some(
+        request.source.inputs.map(
+          id =>
+            DataSlice(
+              hash = stats(id).hash,
+              interval = inputSlices(id).interval,
+              numRecords = stats(id).numRecords
+            )
+        )
       )
     )
 
@@ -166,7 +164,7 @@ class Engine(
     datasetID: DatasetID,
     inputSlices: Map[DatasetID, InputSlice],
     datasetVocabs: Map[DatasetID, DatasetVocabulary],
-    transform: TransformKind.Flink
+    transform: TransformDef
   ): Table = {
     val temporalTables = transform.temporalTables.map(t => (t.id, t)).toMap
 
@@ -561,6 +559,19 @@ class Engine(
       .transform("Split Reader: " + sourceName, typeInfo, factory)
 
     new DataStreamSource(source)
+  }
+
+  private def loadTransform(configObject: ConfigObject): TransformDef = {
+    val raw = yaml.load[TransformDef](configObject.toConfig)
+
+    if (raw.engine != "flink")
+      throw new RuntimeException(s"Unsupported engine: ${raw.engine}")
+
+    raw.copy(
+      queries =
+        if (raw.query.isDefined) Vector(TransformDef.Query(None, raw.query.get))
+        else raw.queries
+    )
   }
 
   implicit class StreamHelpers(s: DataStream[Row]) {

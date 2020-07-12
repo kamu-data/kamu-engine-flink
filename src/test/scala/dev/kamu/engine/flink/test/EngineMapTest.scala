@@ -27,7 +27,7 @@ class EngineMapTest
            |datasetID: out
            |source:
            |  inputs:
-           |    - id: in
+           |    - in
            |  transform:
            |    engine: flink
            |    query: >

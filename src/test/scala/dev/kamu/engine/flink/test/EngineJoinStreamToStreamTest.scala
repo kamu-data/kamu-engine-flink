@@ -64,8 +64,8 @@ class EngineJoinStreamToStreamTest
            |datasetID: shipped_orders
            |source:
            |  inputs:
-           |    - id: orders
-           |    - id: shipments
+           |    - orders
+           |    - shipments
            |  transform:
            |    engine: flink
            |    query: >
@@ -196,8 +196,8 @@ class EngineJoinStreamToStreamTest
            |datasetID: late_orders
            |source:
            |  inputs:
-           |    - id: orders
-           |    - id: shipments
+           |    - orders
+           |    - shipments
            |  transform:
            |    engine: flink
            |    queries:
@@ -325,8 +325,8 @@ class EngineJoinStreamToStreamTest
            |datasetID: late_orders
            |source:
            |  inputs:
-           |    - id: orders
-           |    - id: shipments
+           |    - orders
+           |    - shipments
            |  transform:
            |    engine: flink
            |    queries:
