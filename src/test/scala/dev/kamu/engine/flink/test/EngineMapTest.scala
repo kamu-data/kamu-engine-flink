@@ -29,6 +29,7 @@ class EngineMapTest
            |  inputs:
            |    - in
            |  transform:
+           |    kind: sql
            |    engine: flink
            |    query: >
            |      SELECT

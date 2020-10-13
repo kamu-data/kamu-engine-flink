@@ -49,6 +49,7 @@ class EngineJoinStreamToTemporalTableTest
            |    - tickers
            |    - stocks.owned
            |  transform:
+           |    kind: sql
            |    engine: flink
            |    temporalTables:
            |    - id: stocks.owned
@@ -190,6 +191,7 @@ class EngineJoinStreamToTemporalTableTest
            |    - tickers
            |    - stocks.owned
            |  transform:
+           |    kind: sql
            |    engine: flink
            |    temporalTables:
            |    - id: stocks.owned

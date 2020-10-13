@@ -67,6 +67,7 @@ class EngineJoinStreamToStreamTest
            |    - orders
            |    - shipments
            |  transform:
+           |    kind: sql
            |    engine: flink
            |    query: >
            |      SELECT
@@ -199,6 +200,7 @@ class EngineJoinStreamToStreamTest
            |    - orders
            |    - shipments
            |  transform:
+           |    kind: sql
            |    engine: flink
            |    queries:
            |    - alias: order_shipments
@@ -328,6 +330,7 @@ class EngineJoinStreamToStreamTest
            |    - orders
            |    - shipments
            |  transform:
+           |    kind: sql
            |    engine: flink
            |    queries:
            |    - alias: order_shipments

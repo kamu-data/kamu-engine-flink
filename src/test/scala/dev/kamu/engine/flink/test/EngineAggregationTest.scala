@@ -49,6 +49,7 @@ class EngineAggregationTest
            |  inputs:
            |    - in
            |  transform:
+           |    kind: sql
            |    engine: flink
            |    query: >
            |      SELECT
@@ -233,6 +234,7 @@ class EngineAggregationTest
           |  inputs:
           |    - in
           |  transform:
+          |    kind: sql
           |    engine: flink
           |    query: >
           |      SELECT

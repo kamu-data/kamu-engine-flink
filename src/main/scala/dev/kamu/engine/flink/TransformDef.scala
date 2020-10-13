@@ -3,7 +3,9 @@ package dev.kamu.engine.flink
 import dev.kamu.core.manifests.DatasetID
 
 case class TransformDef(
+  kind: String,
   engine: String,
+  version: Option[String],
   /** Specifies which input streams should be treated as temporal tables.
     * See: https://ci.apache.org/projects/flink/flink-docs-stable/dev/table/streaming/temporal_tables.html
     */
