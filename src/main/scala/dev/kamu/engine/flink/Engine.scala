@@ -131,8 +131,9 @@ class Engine(
       gatherStats(request.datasetID :: inputSlices.keys.toList, checkpointsDir)
 
     val block = MetadataBlock(
-      blockHash = "",
-      prevBlockHash = "",
+      blockHash =
+        "0000000000000000000000000000000000000000000000000000000000000000",
+      prevBlockHash = None,
       systemTime = systemClock.instant(),
       outputSlice = Some(
         DataSlice(
@@ -164,9 +165,10 @@ class Engine(
     datasetID: DatasetID,
     inputSlices: Map[DatasetID, InputSlice],
     datasetVocabs: Map[DatasetID, DatasetVocabulary],
-    transform: TransformDef
+    transform: Transform.Sql
   ): Table = {
-    val temporalTables = transform.temporalTables.map(t => (t.id, t)).toMap
+    val temporalTables =
+      transform.temporalTables.getOrElse(Vector.empty).map(t => (t.id, t)).toMap
 
     // Setup inputs
     for ((inputID, slice) <- inputSlices) {
@@ -197,7 +199,7 @@ class Engine(
       tEnv.createTemporaryView(s"`$inputID`", table)
 
       temporalTables
-        .get(inputID)
+        .get(inputID.toString)
         .map(_.primaryKey)
         .getOrElse(Vector.empty) match {
         case Vector() =>
@@ -219,7 +221,7 @@ class Engine(
     }
 
     // Setup transform
-    for (step <- transform.queries) {
+    for (step <- transform.queries.get) {
       val alias = step.alias.getOrElse(datasetID.toString)
       val table = tEnv.sqlQuery(step.query)
       tEnv.createTemporaryView(s"`$alias`", table)
@@ -561,16 +563,16 @@ class Engine(
     new DataStreamSource(source)
   }
 
-  private def loadTransform(configObject: ConfigObject): TransformDef = {
-    val raw = yaml.load[TransformDef](configObject.toConfig)
-
+  private def loadTransform(raw: Transform): Transform.Sql = {
     if (raw.engine != "flink")
       throw new RuntimeException(s"Unsupported engine: ${raw.engine}")
 
-    raw.copy(
+    val sql = raw.asInstanceOf[Transform.Sql]
+
+    sql.copy(
       queries =
-        if (raw.query.isDefined) Vector(TransformDef.Query(None, raw.query.get))
-        else raw.queries
+        if (sql.query.isDefined) Some(Vector(SqlQueryStep(None, sql.query.get)))
+        else sql.queries
     )
   }
 
