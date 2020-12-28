@@ -14,10 +14,7 @@ import java.nio.ByteBuffer;
 import java.sql.Date;
 import java.sql.Time;
 import java.sql.Timestamp;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.TimeZone;
+import java.util.*;
 
 public class AvroConverter implements Serializable {
     private static final TimeZone LOCAL_TZ = TimeZone.getDefault();
@@ -95,8 +92,6 @@ public class AvroConverter implements Serializable {
             case FIXED:
                 // check for logical type
                 if (object instanceof BigDecimal) {
-                    byte[] bytes = new byte[schema.getFixedSize()];
-                    byte[] decimalRepr = convertFromDecimal(schema, (BigDecimal) object);
                     return new GenericData.Fixed(
                             schema,
                             convertFromDecimal(schema, (BigDecimal) object));
@@ -143,8 +138,10 @@ public class AvroConverter implements Serializable {
             byte[] decimalRepr = rescaled.unscaledValue().toByteArray();
             if(schema.getType() == Schema.Type.FIXED && schema.getFixedSize() != decimalRepr.length) {
                 // Need to re-scale
+                byte signByte = (byte) (decimalRepr[0] < 0 ? -1 : 0);
                 byte[] padded = new byte[schema.getFixedSize()];
                 int startAt = padded.length - decimalRepr.length;
+                Arrays.fill(padded, 0, startAt, signByte);
                 System.arraycopy(decimalRepr, 0, padded, startAt, decimalRepr.length);
                 return padded;
             }

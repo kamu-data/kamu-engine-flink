@@ -8,7 +8,7 @@ import scala.collection.mutable.ListBuffer
 class StreamSink extends SinkFunction[Row] {
   StreamSink.buffer = new ListBuffer[Row]()
 
-  override def invoke(value: Row, context: SinkFunction.Context[_]): Unit = {
+  override def invoke(value: Row, context: SinkFunction.Context): Unit = {
     StreamSink.buffer.append(value)
   }
 

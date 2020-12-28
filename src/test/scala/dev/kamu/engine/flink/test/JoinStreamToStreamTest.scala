@@ -92,11 +92,11 @@ class JoinStreamToStreamTest
     val actual = sink.collectStr().sorted
 
     val expected = List(
-      "2000-01-01,1,10,2000-01-01,5",
-      "2000-01-01,1,10,2000-01-01,5",
-      "2000-01-01,2,120,2000-01-02,120",
-      "2000-01-05,3,9,null,null",
-      "2000-01-10,4,110,2000-01-11,110"
+      "+I[2000-01-01, 1, 10, 2000-01-01, 5]",
+      "+I[2000-01-01, 1, 10, 2000-01-01, 5]",
+      "+I[2000-01-01, 2, 120, 2000-01-02, 120]",
+      "+I[2000-01-05, 3, 9, null, null]",
+      "+I[2000-01-10, 4, 110, 2000-01-11, 110]",
     ).sorted
 
     expected shouldEqual actual
@@ -205,8 +205,8 @@ class JoinStreamToStreamTest
     val actual = sink.collectStr().sorted
 
     val expected = List(
-      "2000-01-05,3,1,null,null,9,0",
-      "2000-01-10,4,1,2000-01-11,2000-01-11,110,50"
+      "+I[2000-01-05, 3, 1, null, null, 9, 0]",
+      "+I[2000-01-10, 4, 1, 2000-01-11, 2000-01-11, 110, 50]",
     ).sorted
 
     expected shouldEqual actual

@@ -6,7 +6,12 @@ import java.sql.Timestamp
 import com.sksamuel.avro4s.ScalePrecisionRoundingMode
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
-import dev.kamu.engine.flink.{AvroConverter, ParuqetSink, SchemaConverter}
+import dev.kamu.engine.flink.{
+  AvroConverter,
+  ParquetRowInputFormatEx,
+  ParuqetSink,
+  SchemaConverter
+}
 import org.apache.flink.formats.parquet.ParquetRowInputFormat
 import org.apache.flink.streaming.api.scala.StreamExecutionEnvironment
 import org.apache.flink.streaming.api.scala._
@@ -63,13 +68,17 @@ class ParquetSinkTest
       )
 
       val env = StreamExecutionEnvironment.getExecutionEnvironment
+
+      // See: https://ci.apache.org/projects/flink/flink-docs-release-1.13/docs/dev/execution/execution_configuration/
+      env.getConfig.enableObjectReuse()
+
       val tEnv = StreamTableEnvironment.create(env)
 
       env.setParallelism(1)
 
       val messageType = getParquetSchema(filePath)
 
-      val inputFormat = new ParquetRowInputFormat(
+      val inputFormat = new ParquetRowInputFormatEx(
         new FlinkPath(filePath.toUri.getPath),
         messageType
       )

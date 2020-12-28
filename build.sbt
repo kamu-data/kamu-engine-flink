@@ -6,7 +6,7 @@ ThisBuild / resolvers ++= Seq(
 name := "kamu-engine-flink"
 version := "0.1-SNAPSHOT"
 organization := "dev.kamu"
-ThisBuild / scalaVersion := "2.12.11"
+ThisBuild / scalaVersion := "2.12.13"
 
 //////////////////////////////////////////////////////////////////////////////
 // Projects
@@ -14,6 +14,9 @@ ThisBuild / scalaVersion := "2.12.11"
 
 // Don't run tests in parallel
 ThisBuild / parallelExecution := false
+
+// Due to IntelliJ bug
+ThisBuild / useCoursier := false
 
 lazy val root = (project in file("."))
   .aggregate(
@@ -26,8 +29,8 @@ lazy val root = (project in file("."))
   )
   //.enablePlugins(AutomateHeaderPlugin)
   .settings(
-    aggregate in assembly := false,
-    test in assembly := {},
+    assembly / aggregate := false,
+    assembly / test := {},
     //assemblySettings
     libraryDependencies ++= flinkDependencies
   )
@@ -38,7 +41,7 @@ lazy val kamuCoreUtils = project
   .settings(
     libraryDependencies ++= Seq(
       deps.betterFiles,
-      deps.log4jApi,
+      deps.slf4jApi,
       deps.scalaTest % "test"
     )
     //commonSettings,
@@ -66,31 +69,28 @@ lazy val kamuCoreManifests = project
 //////////////////////////////////////////////////////////////////////////////
 
 lazy val versions = new {
-  val log4j = "2.13.3"
   val betterFiles = "3.9.1"
-  val flink = "1.12-SNAPSHOT"
+  val flink = "1.13.0"
   val pureConfig = "0.13.0"
-  val spire = "0.13.0" // Used by spark too
+  val spire = "0.13.0"
 }
 
 lazy val deps =
   new {
-    val log4jApi = "org.apache.logging.log4j" % "log4j-api" % versions.log4j
+    val slf4jApi = "org.slf4j" % "slf4j-api" % "1.7.30"
     // File System
     val betterFiles = "com.github.pathikrit" %% "better-files" % versions.betterFiles
     // Configs
     val pureConfig = "com.github.pureconfig" %% "pureconfig" % versions.pureConfig
     val pureConfigYaml = "com.github.pureconfig" %% "pureconfig-yaml" % versions.pureConfig
     // Math
-    // TODO: Using older version as it's also used by Spark
-    //val spire = "org.typelevel" %% "spire" % versions.spire
     val spire = "org.spire-math" %% "spire" % versions.spire
     // Test
     val scalaTest = "org.scalatest" %% "scalatest" % "3.0.8"
   }
 
 val flinkDependencies = Seq(
-  deps.log4jApi,
+  deps.slf4jApi,
   deps.betterFiles,
   "org.apache.flink" %% "flink-scala" % versions.flink % "provided",
   "org.apache.flink" %% "flink-streaming-scala" % versions.flink % "provided",
@@ -98,10 +98,9 @@ val flinkDependencies = Seq(
   // TODO: Tests won't run without this ... are we using blink or not?
   "org.apache.flink" %% "flink-table-planner" % versions.flink % "test",
   "org.apache.flink" %% "flink-table-planner-blink" % versions.flink % "provided",
-  //"org.apache.flink" % "flink-csv" % flinkVersion % "provided",
-  "org.apache.flink" % "flink-avro" % versions.flink % "provided",
+  "org.apache.flink" % "flink-avro" % versions.flink,
   "org.apache.flink" %% "flink-parquet" % versions.flink,
-  "org.apache.parquet" % "parquet-avro" % "1.10.0",
+  "org.apache.parquet" % "parquet-avro" % "1.11.1",
   ("org.apache.hadoop" % "hadoop-client" % "2.8.3")
     .exclude("commons-beanutils", "commons-beanutils")
     .exclude("commons-beanutils", "commons-beanutils-core"),
@@ -131,3 +130,10 @@ assembly / assemblyJarName := "engine.flink.jar"
 // exclude Scala library from assembly
 assembly / assemblyOption := (assembly / assemblyOption).value
   .copy(includeScala = false)
+
+assembly / assemblyMergeStrategy := {
+  case "module-info.class" => MergeStrategy.discard
+  case x =>
+    val oldStrategy = (assembly / assemblyMergeStrategy).value
+    oldStrategy(x)
+}

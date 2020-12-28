@@ -12,9 +12,9 @@ import org.apache.flink.streaming.api.functions.sink.{
   SinkFunction
 }
 import org.apache.hadoop.fs.Path
-import org.apache.logging.log4j.LogManager
 import org.apache.parquet.avro.AvroParquetWriter
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
+import org.slf4j.LoggerFactory
 
 import scala.collection.mutable.ArrayBuffer
 
@@ -24,7 +24,7 @@ class ParuqetSink(
   flushOnClose: Boolean = false
 ) extends RichSinkFunction[GenericRecord]
     with CheckpointedFunction {
-  @transient private lazy val logger = LogManager.getLogger(getClass.getName)
+  @transient private lazy val logger = LoggerFactory.getLogger(getClass)
 
   @transient private lazy val rows: ArrayBuffer[GenericRecord] =
     ArrayBuffer.empty
@@ -33,7 +33,7 @@ class ParuqetSink(
 
   override def invoke(
     value: GenericRecord,
-    context: SinkFunction.Context[_]
+    context: SinkFunction.Context
   ): Unit = {
     if (flushed)
       throw new RuntimeException(

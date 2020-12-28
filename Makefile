@@ -1,13 +1,13 @@
-FLINK_BASE_IMAGE = flink:1.12-SHAPSHOT-scala_2.12
-ENGINE_VERSION = 0.7.0
-IMAGE_REPO = kamudata
-ENGINE_IMAGE = $(IMAGE_REPO)/engine-flink:$(ENGINE_VERSION)
+FLINK_IMAGE_VERSION = 1.13.0-scala_2.12-java8
+FLINK_IMAGE = flink:$(FLINK_IMAGE_VERSION)
+ENGINE_IMAGE_VERSION = 0.8.0-flink_$(FLINK_IMAGE_VERSION)
+ENGINE_IMAGE = kamudata/engine-flink:$(ENGINE_IMAGE_VERSION)
 
 
 .PHONY: image
 image:
 	docker build \
-		--build-arg BASE_IMAGE=$(FLINK_BASE_IMAGE) \
+		--build-arg BASE_IMAGE=$(FLINK_IMAGE) \
 		-t $(ENGINE_IMAGE) \
 		-f image/Dockerfile \
 		.
@@ -30,4 +30,4 @@ run-all-in-one:
 		-v $(PWD)/target/scala-2.12:/opt/engine/bin \
 		-v $(PWD)/workspace:/opt/engine/workspace \
 		--entrypoint bash \
-		$(FLINK_BASE_IMAGE)
+		$(FLINK_IMAGE)

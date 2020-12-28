@@ -2,7 +2,6 @@ package dev.kamu.engine.flink
 
 import java.io.FileWriter
 import java.security.MessageDigest
-
 import org.apache.flink.runtime.state.StateSnapshotContext
 import org.apache.flink.streaming.api.operators.{
   AbstractStreamOperator,
@@ -10,13 +9,12 @@ import org.apache.flink.streaming.api.operators.{
 }
 import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord
-import org.apache.flink.types.Row
-import org.apache.logging.log4j.LogManager
+import org.slf4j.LoggerFactory
 
-class StatsOperator(datasetID: String, path: String)
-    extends AbstractStreamOperator[Row]
-    with OneInputStreamOperator[Row, Row] {
-  @transient private lazy val logger = LogManager.getLogger(getClass.getName)
+class StatsOperator[T](datasetID: String, path: String)
+    extends AbstractStreamOperator[T]
+    with OneInputStreamOperator[T, T] {
+  @transient private lazy val logger = LoggerFactory.getLogger(getClass)
 
   @transient private lazy val digest = MessageDigest.getInstance("sha-256")
 
@@ -24,7 +22,7 @@ class StatsOperator(datasetID: String, path: String)
 
   private var lastWatermark = Long.MinValue
 
-  override def processElement(element: StreamRecord[Row]): Unit = {
+  override def processElement(element: StreamRecord[T]): Unit = {
     rowCount += 1
     output.collect(element)
     digest.update(element.getValue.toString.getBytes("utf-8"))
@@ -44,7 +42,7 @@ class StatsOperator(datasetID: String, path: String)
     writer.write(hash + "\n")
     writer.close()
 
-    logger.info(s"Written stats to: $path ($rowCount rows)")
+    logger.info(s"Written stats for $datasetID to: $path ($rowCount rows)")
     rowCount = 0
   }
 
@@ -56,7 +54,7 @@ class StatsOperator(datasetID: String, path: String)
   override def close(): Unit = {
     if (rowCount > 0) {
       throw new RuntimeException(
-        s"Closing with $rowCount rows were not flushed"
+        s"Closing stats for $datasetID with $rowCount rows were not flushed"
       )
     }
   }

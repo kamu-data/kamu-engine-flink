@@ -4,7 +4,6 @@ import java.nio.file.{Files, Path, Paths}
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.Scanner
-
 import better.files.File
 import com.typesafe.config.ConfigObject
 import pureconfig.generic.auto._
@@ -19,12 +18,18 @@ import dev.kamu.core.manifests.infra.{
 }
 import dev.kamu.core.utils.Clock
 import dev.kamu.core.utils.fs._
+import org.apache.avro.Schema
+import org.apache.avro.generic.GenericRecord
 import org.apache.commons.io.FileUtils
 import org.apache.flink.api.common.JobStatus
 import org.apache.flink.api.common.io.FileInputFormat
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.java.typeutils.RowTypeInfo
 import org.apache.flink.core.fs.{Path => FlinkPath}
+import org.apache.flink.formats.avro.typeutils.{
+  AvroSchemaConverter,
+  GenericRecordAvroTypeInfo
+}
 import org.apache.flink.formats.parquet.ParquetRowInputFormat
 import org.apache.flink.streaming.api.datastream.DataStreamSource
 import org.apache.flink.streaming.api.functions.source.{
@@ -37,10 +42,10 @@ import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.table.expressions.ExpressionParser
 import org.apache.flink.table.typeutils.FieldInfoUtils
 import org.apache.flink.types.Row
-import org.apache.logging.log4j.LogManager
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.{MessageType, MessageTypeParser}
+import org.slf4j.LoggerFactory
 import spire.math.interval.{Closed, Open, Unbound}
 import spire.math.{All, Empty, Interval}
 
@@ -64,7 +69,7 @@ class Engine(
   env: StreamExecutionEnvironment,
   tEnv: StreamTableEnvironment
 ) {
-  private val logger = LogManager.getLogger(getClass.getName)
+  private val logger = LoggerFactory.getLogger(classOf[Engine])
 
   def executeQueryExtended(request: ExecuteQueryRequest): ExecuteQueryResult = {
     val transform = loadTransform(request.source.transform)
@@ -88,7 +93,7 @@ class Engine(
       transform
     )
 
-    println(s"Result schema:\n${resultTable.getSchema}")
+    logger.info(s"Result schema:\n${resultTable.getSchema}")
 
     // Computes row count and data hash
     val resultStream = resultTable
@@ -101,11 +106,14 @@ class Engine(
 
     // Convert to Avro so we can then save in Parquet :(
     val avroSchema = SchemaConverter.convert(resultTable.getSchema)
-    println(s"Result schema in Avro format:\n${avroSchema.toString(true)}")
+    logger.info(s"Result schema in Avro format:\n${avroSchema.toString(true)}")
 
     val avroConverter = new AvroConverter(avroSchema.toString())
+    val avroTypeInfo = new GenericRecordAvroTypeInfo(avroSchema)
     val avroStream =
-      resultStream.map(r => avroConverter.convertRowToAvroRecord(r))
+      resultStream.map(r => avroConverter.convertRowToAvroRecord(r))(
+        avroTypeInfo
+      )
 
     avroStream.addSink(
       new ParuqetSink(
@@ -183,7 +191,7 @@ class Engine(
         .dropColumns(inputVocab.systemTimeColumn.get)
 
       logger.info(
-        "Registered input {} with schema:\n{}",
+        "Registered input '{}' with schema:\n{}",
         inputID,
         table.getSchema
       )
@@ -201,7 +209,7 @@ class Engine(
             table.createTemporalTableFunction(eventTimeColumn, pk)
           )
           logger.info(
-            "Registered input {} as temporal table with PK: {}",
+            "Registered input '{}' as temporal table with PK: {}",
             inputID,
             pk
           )
@@ -286,7 +294,7 @@ class Engine(
         )
       ).!!
 
-      println(s"OUTPUT: $out")
+      logger.info(s"OUTPUT: $out")
     } finally {
       inputSlices.values.foreach(i => File(i.markerPath).delete(true))
     }
@@ -455,7 +463,6 @@ class Engine(
       )
     } catch {
       case e: Exception =>
-        println(s"Error while reading stats file: $path $e")
         logger.error(s"Error while reading stats file: $path", e)
         throw e
     }
@@ -473,33 +480,25 @@ class Engine(
     val schema = getSchemaFromFile(schemaFile)
     logger.debug(s"Using following schema:\n$schema")
 
-    val messageType = MessageTypeParser.parseMessageType(schema.toString)
-
-    val inputFormat = new ParquetRowInputFormat(
+    val inputFormat = new ParquetRowInputFormatEx(
       new FlinkPath(schemaFile.getParent.toUri.getPath),
-      messageType
+      schema
     )
 
-    /*env.readFile[Row](
-      inputFormat,
-      path.toUri.getPath,
-      FileProcessingMode.PROCESS_CONTINUOUSLY,
-      500
-    )(inputFormat.getProducedType)*/
-
-    new DataStream[Row](
-      createFileInput(
-        inputFormat,
-        inputFormat.getProducedType,
-        datasetID.toString,
-        filesToRead,
-        FileProcessingMode.PROCESS_CONTINUOUSLY,
-        1000,
-        markerPath,
-        prevWatermark,
-        explicitWatermarks
+    val javaStream =
+      env.getJavaEnv.addSource(
+        new ParquetSourceFunction(
+          datasetID.toString,
+          filesToRead.map(_.toString),
+          inputFormat,
+          prevWatermark.getOrElse(Instant.MIN),
+          explicitWatermarks.map(_.eventTime),
+          markerPath.toString
+        ),
+        datasetID.toString
       )
-    )
+
+    new DataStream[Row](javaStream)
   }
 
   private def getSchemaFromFile(path: Path): MessageType = {
@@ -515,7 +514,7 @@ class Engine(
   }
 
   // TODO: This env method is overridden to customize file reader behavior
-  private def createFileInput[T](
+  /*private def createFileInput[T](
     inputFormat: FileInputFormat[T],
     typeInfo: TypeInformation[T],
     sourceName: String,
@@ -544,11 +543,11 @@ class Engine(
       )
 
     val source = env.getJavaEnv
-      .addSource(monitoringFunction, sourceName.asInstanceOf[String])
+      .addSource(monitoringFunction, sourceName)
       .transform("Split Reader: " + sourceName, typeInfo, factory)
 
     new DataStreamSource(source)
-  }
+  }*/
 
   private def loadTransform(raw: Transform): Transform.Sql = {
     if (raw.engine != "flink")
@@ -563,16 +562,16 @@ class Engine(
     )
   }
 
-  implicit class StreamHelpers(s: DataStream[Row]) {
+  implicit class StreamHelpers[T](s: DataStream[T]) {
 
-    def withStats(id: String, path: Path): DataStream[Row] = {
+    def withStats(id: String, path: Path): DataStream[T] = {
       s.transform(
         "stats",
         new StatsOperator(id, path.toUri.getPath)
       )(s.dataType)
     }
 
-    def withDebugLogging(id: String): DataStream[Row] = {
+    def withDebugLogging(id: String): DataStream[T] = {
       s.transform(
         "snitch",
         new SnitchOperator(id)
