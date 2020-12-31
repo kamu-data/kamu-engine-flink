@@ -17,7 +17,6 @@ import org.apache.flink.util.Preconditions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.*;
 
@@ -39,8 +38,8 @@ public class CustomFileMonitoringFunction<OUT>
 	 */
 	public static final long MIN_MONITORING_INTERVAL = 1L;
 
-	/** The path to monitor. */
-	private final String path;
+	/** Kamu: Coordinator provides the list of files to read with every operation */
+	private final ArrayList<String> filesToRead;
 
 	/** The parallelism of the downstream readers. */
 	private final int readerParallelism;
@@ -54,9 +53,6 @@ public class CustomFileMonitoringFunction<OUT>
 	/** Which new data to process (see {@link FileProcessingMode}. */
 	private final FileProcessingMode watchType;
 
-    /** Last seen file name is kept as a state to determine which files were seen before */
-    private volatile String lastSeenFilename = "";
-
 	private transient Object checkpointLock;
 
 	private volatile boolean isRunning = true;
@@ -65,6 +61,7 @@ public class CustomFileMonitoringFunction<OUT>
 
     public CustomFileMonitoringFunction(
 		FileInputFormat<OUT> format,
+		List<String> filesToRead,
 		FileProcessingMode watchType,
 		int readerParallelism,
 		long interval) {
@@ -80,12 +77,11 @@ public class CustomFileMonitoringFunction<OUT>
 			"FileInputFormats with multiple paths are not supported yet.");
 
 		this.format = Preconditions.checkNotNull(format, "Unspecified File Input Format.");
-		this.path = Preconditions.checkNotNull(format.getFilePaths()[0].toString(), "Unspecified Path.");
+		this.filesToRead = new ArrayList<>(filesToRead);
 
 		this.interval = interval;
 		this.watchType = watchType;
 		this.readerParallelism = Math.max(readerParallelism, 1);
-        this.lastSeenFilename = "";
 	}
 
 	@Override
@@ -103,33 +99,6 @@ public class CustomFileMonitoringFunction<OUT>
 
 		if (context.isRestored()) {
 			LOG.info("Restoring state for the {}.", getClass().getSimpleName());
-
-            List<String> retrievedStates = new ArrayList<>();
-            for (String entry : this.checkpointedState.get()) {
-				retrievedStates.add(entry);
-			}
-
-			// given that the parallelism of the function is 1, we can only have 1 or 0 retrieved items.
-			// the 0 is for the case that we are migrating from a previous Flink version.
-
-			Preconditions.checkArgument(retrievedStates.size() <= 1,
-				getClass().getSimpleName() + " retrieved invalid state.");
-
-            if (retrievedStates.size() == 1 && !lastSeenFilename.isEmpty()) {
-				// this is the case where we have both legacy and new state.
-				// The two should be mutually exclusive for the operator, thus we throw the exception.
-
-				throw new IllegalArgumentException(
-					"The " + getClass().getSimpleName() + " has already restored from a previous Flink version.");
-
-			} else if (retrievedStates.size() == 1) {
-                this.lastSeenFilename = retrievedStates.get(0);
-				if (LOG.isDebugEnabled()) {
-                    LOG.debug("{} retrieved a last filename of {}.",
-                            getClass().getSimpleName(), lastSeenFilename);
-				}
-			}
-
 		} else {
 			LOG.info("No state to restore for the {}.", getClass().getSimpleName());
 		}
@@ -141,18 +110,14 @@ public class CustomFileMonitoringFunction<OUT>
 		format.configure(parameters);
 
 		if (LOG.isDebugEnabled()) {
-			LOG.debug("Opened {} (taskIdx= {}) for path: {}",
-				getClass().getSimpleName(), getRuntimeContext().getIndexOfThisSubtask(), path);
+			LOG.debug("Opened {} (taskIdx= {})",
+				getClass().getSimpleName(), getRuntimeContext().getIndexOfThisSubtask());
 		}
 	}
 
 	@Override
 	public void run(SourceFunction.SourceContext<TimestampedFileInputSplit> context) throws Exception {
-		Path p = new Path(path);
-		FileSystem fileSystem = FileSystem.get(p.toUri());
-		if (!fileSystem.exists(p)) {
-			throw new FileNotFoundException("The provided file path " + path + " does not exist.");
-		}
+		FileSystem fileSystem = FileSystem.get(format.getFilePaths()[0].toUri());
 
 		checkpointLock = context.getCheckpointLock();
 		switch (watchType) {
@@ -182,9 +147,9 @@ public class CustomFileMonitoringFunction<OUT>
 					// after a failure and we managed to have a successful
 					// checkpoint, we will not reprocess the directory.
 
-                    if (lastSeenFilename.isEmpty()) {
+                    //if (lastSeenFilename.isEmpty()) {
 						monitorDirAndForwardSplits(fileSystem, context);
-					}
+					//}
 					isRunning = false;
 				}
 				break;
@@ -198,17 +163,14 @@ public class CustomFileMonitoringFunction<OUT>
 											SourceContext<TimestampedFileInputSplit> context) throws IOException {
 		assert (Thread.holdsLock(checkpointLock));
 
-        List<FileStatus> eligibleFiles = listEligibleFiles(fs, new Path(path));
+        List<FileStatus> eligibleFiles = listEligibleFiles(fs);
         Map<String, List<TimestampedFileInputSplit>> splitsGrouped = getInputSplits(eligibleFiles);
 
         for (Map.Entry<String, List<TimestampedFileInputSplit>> splits: splitsGrouped.entrySet()) {
-            String name = splits.getKey();
-			for (TimestampedFileInputSplit split: splits.getValue()) {
+            for (TimestampedFileInputSplit split: splits.getValue()) {
 				LOG.info("Forwarding split: " + split);
 				context.collect(split);
 			}
-
-            lastSeenFilename = name;
 		}
 	}
 
@@ -243,32 +205,24 @@ public class CustomFileMonitoringFunction<OUT>
 				splitsToForward.add(new TimestampedFileInputSplit(
 					modTime, split.getSplitNumber(), split.getPath(),
 					split.getStart(), split.getLength(), split.getHostnames()));
+			} else {
+				LOG.info("Skipping ineligible split from file: {}", split.getPath());
 			}
 		}
         return splitsByName;
 	}
 
 	/**
-	 * Returns the paths of the files not yet processed.
+	 * Returns the paths of the files to be processed.
 	 * @param fileSystem The filesystem where the monitored directory resides.
 	 */
-    private List<FileStatus> listEligibleFiles(FileSystem fileSystem, Path path) throws IOException {
-        ArrayList<FileStatus> statuses;
-		try {
-            statuses = new ArrayList<>(Arrays.asList(fileSystem.listStatus(path)));
-		} catch (IOException e) {
-			// we may run into an IOException if files are moved while listing their status
-			// delay the check for eligible files in this case
-            return Collections.emptyList();
+    private List<FileStatus> listEligibleFiles(FileSystem fileSystem) throws IOException {
+        ArrayList<FileStatus> statuses = new ArrayList<>(this.filesToRead.size());
+        for (String p: this.filesToRead) {
+			statuses.add(fileSystem.getFileStatus(new Path(p)));
 		}
-
-        statuses.removeIf(fs ->
-                !lastSeenFilename.isEmpty() &&
-                fs.getPath().getName().compareToIgnoreCase(lastSeenFilename) <= 0);
-
-        statuses.sort((lhs, rhs) -> lhs.getPath().getName().compareToIgnoreCase(rhs.getPath().getName()));
         return statuses;
-		}
+	}
 
 	@Override
 	public void close() throws Exception {
@@ -282,7 +236,7 @@ public class CustomFileMonitoringFunction<OUT>
 		}
 
 		if (LOG.isDebugEnabled()) {
-			LOG.debug("Closed File Monitoring Source for path: " + path + ".");
+			LOG.debug("Closed File Monitoring Source");
 		}
 	}
 
@@ -308,10 +262,9 @@ public class CustomFileMonitoringFunction<OUT>
 			"The " + getClass().getSimpleName() + " state has not been properly initialized.");
 
 		this.checkpointedState.clear();
-        this.checkpointedState.add(this.lastSeenFilename);
 
 		if (LOG.isDebugEnabled()) {
-            LOG.debug("{} checkpointed {}.", getClass().getSimpleName(), lastSeenFilename);
+            LOG.debug("{} checkpointed.", getClass().getSimpleName());
 		}
 	}
 }

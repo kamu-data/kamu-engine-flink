@@ -1,5 +1,6 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.Paths
 import java.sql.Timestamp
 
 import pureconfig.generic.auto._
@@ -49,7 +50,8 @@ class EngineJoinStreamToStreamTest
     extends FunSuite
     with Matchers
     with BeforeAndAfter
-    with TimeHelpers {
+    with TimeHelpers
+    with EngineHelpers {
 
   test("Stream to stream join") {
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
@@ -59,7 +61,7 @@ class EngineJoinStreamToStreamTest
       val shipmentsLayout = tempLayout(tempDir, "shipments")
       val shippedOrdersLayout = tempLayout(tempDir, "shipped_orders")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: shipped_orders
            |source:
@@ -82,18 +84,9 @@ class EngineJoinStreamToStreamTest
            |      ON
            |        o.order_id = s.order_id
            |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
-           |inputSlices:
-           |  orders:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |  shipments:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |dataDirs:
-           |  orders: ${ordersLayout.dataDir}
-           |  shipments: ${shipmentsLayout.dataDir}
-           |  shipped_orders: ${shippedOrdersLayout.dataDir}
-           |checkpointsDir: ${shippedOrdersLayout.checkpointsDir}
+           |inputSlices: {}
+           |newCheckpointDir: ""
+           |outDataPath: ""
            |datasetVocabs:
            |  orders: {}
            |  shipments: {}
@@ -102,9 +95,13 @@ class EngineJoinStreamToStreamTest
            |""".stripMargin
       )
 
-      {
-        ParquetHelpers.write(
-          ordersLayout.dataDir.resolve("1.parquet"),
+      val lastCheckpointDir = {
+        var request = withRandomOutputPath(requestTemplate, shippedOrdersLayout)
+
+        request = withInputData(
+          request,
+          "orders",
+          ordersLayout.dataDir,
           Seq(
             Order(ts(6), ts(1), 1, 10),
             Order(ts(6), ts(1), 2, 120),
@@ -112,8 +109,10 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        ParquetHelpers.write(
-          shipmentsLayout.dataDir.resolve("1.parquet"),
+        request = withInputData(
+          request,
+          "shipments",
+          shipmentsLayout.dataDir,
           Seq(
             Shipment(ts(3), ts(1), 1, 4),
             Shipment(ts(3), ts(2), 1, 6),
@@ -130,9 +129,7 @@ class EngineJoinStreamToStreamTest
         result.block.outputSlice.get.numRecords shouldEqual 3
 
         val actual = ParquetHelpers
-          .read[ShippedOrder](
-            shippedOrdersLayout.dataDir.resolve(result.dataFileName.get)
-          )
+          .read[ShippedOrder](Paths.get(request.outDataPath))
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -140,18 +137,30 @@ class EngineJoinStreamToStreamTest
           ShippedOrder(ts(10), ts(1), 1, 10, Some(ts(2)), 6),
           ShippedOrder(ts(10), ts(1), 2, 120, Some(ts(2)), 120)
         )
+
+        request.newCheckpointDir
       }
 
       {
-        ParquetHelpers.write(
-          ordersLayout.dataDir.resolve("2.parquet"),
+        var request = withRandomOutputPath(
+          requestTemplate,
+          shippedOrdersLayout,
+          Some(lastCheckpointDir)
+        )
+
+        request = withInputData(
+          request,
+          "orders",
+          ordersLayout.dataDir,
           Seq(
             Order(ts(11), ts(10), 4, 110)
           )
         )
 
-        ParquetHelpers.write(
-          shipmentsLayout.dataDir.resolve("2.parquet"),
+        request = withInputData(
+          request,
+          "shipments",
+          shipmentsLayout.dataDir,
           Seq(
             Shipment(ts(12), ts(8), 3, 9),
             Shipment(ts(12), ts(11), 4, 110)
@@ -171,9 +180,7 @@ class EngineJoinStreamToStreamTest
         result.block.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
-          .read[ShippedOrder](
-            shippedOrdersLayout.dataDir.resolve(result.dataFileName.get)
-          )
+          .read[ShippedOrder](Paths.get(request.outDataPath))
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -192,7 +199,7 @@ class EngineJoinStreamToStreamTest
       val shipmentsLayout = tempLayout(tempDir, "shipments")
       val lateOrdersLayout = tempLayout(tempDir, "late_orders")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: late_orders
            |source:
@@ -234,18 +241,9 @@ class EngineJoinStreamToStreamTest
            |        SELECT *
            |        FROM shipment_stats
            |        WHERE order_quantity <> shipped_quantity_total
-           |inputSlices:
-           |  orders:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |  shipments:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |dataDirs:
-           |  orders: ${ordersLayout.dataDir}
-           |  shipments: ${shipmentsLayout.dataDir}
-           |  late_orders: ${lateOrdersLayout.dataDir}
-           |checkpointsDir: ${lateOrdersLayout.checkpointsDir}
+           |inputSlices: {}
+           |newCheckpointDir: ""
+           |outDataPath: ""
            |datasetVocabs:
            |  orders: {}
            |  shipments: {}
@@ -255,8 +253,12 @@ class EngineJoinStreamToStreamTest
       )
 
       {
-        ParquetHelpers.write(
-          ordersLayout.dataDir.resolve("1.parquet"),
+        var request = withRandomOutputPath(requestTemplate, lateOrdersLayout)
+
+        request = withInputData(
+          request,
+          "orders",
+          ordersLayout.dataDir,
           Seq(
             Order(ts(16), ts(1), 1, 10),
             Order(ts(16), ts(1), 2, 120),
@@ -266,8 +268,10 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        ParquetHelpers.write(
-          shipmentsLayout.dataDir.resolve("1.parquet"),
+        request = withInputData(
+          request,
+          "shipments",
+          shipmentsLayout.dataDir,
           Seq(
             Shipment(ts(17), ts(1), 1, 4),
             Shipment(ts(17), ts(2), 1, 6),
@@ -292,9 +296,7 @@ class EngineJoinStreamToStreamTest
         result.block.outputWatermark.get shouldEqual ts(13).toInstant
 
         val actual = ParquetHelpers
-          .read[ShipmentStats](
-            lateOrdersLayout.dataDir.resolve(result.dataFileName.get)
-          )
+          .read[ShipmentStats](Paths.get(request.outDataPath))
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -322,7 +324,7 @@ class EngineJoinStreamToStreamTest
       val shipmentsLayout = tempLayout(tempDir, "shipments")
       val lateOrdersLayout = tempLayout(tempDir, "late_orders")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: late_orders
            |source:
@@ -364,18 +366,9 @@ class EngineJoinStreamToStreamTest
            |        SELECT *
            |        FROM shipment_stats
            |        WHERE order_quantity <> shipped_quantity_total
-           |inputSlices:
-           |  orders:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |  shipments:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |dataDirs:
-           |  orders: ${ordersLayout.dataDir}
-           |  shipments: ${shipmentsLayout.dataDir}
-           |  late_orders: ${lateOrdersLayout.dataDir}
-           |checkpointsDir: ${lateOrdersLayout.checkpointsDir}
+           |inputSlices: {}
+           |newCheckpointDir: ""
+           |outDataPath: ""
            |datasetVocabs:
            |  orders: {}
            |  shipments: {}
@@ -385,8 +378,12 @@ class EngineJoinStreamToStreamTest
       )
 
       {
-        ParquetHelpers.write(
-          ordersLayout.dataDir.resolve("1.parquet"),
+        var request = withRandomOutputPath(requestTemplate, lateOrdersLayout)
+
+        request = withInputData(
+          request,
+          "orders",
+          ordersLayout.dataDir,
           Seq(
             Order(ts(11), ts(1), 1, 10),
             Order(ts(11), ts(1), 2, 120),
@@ -395,8 +392,10 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        ParquetHelpers.write(
-          shipmentsLayout.dataDir.resolve("1.parquet"),
+        request = withInputData(
+          request,
+          "shipments",
+          shipmentsLayout.dataDir,
           Seq(
             Shipment(ts(14), ts(1), 1, 4),
             Shipment(ts(14), ts(2), 1, 6),
@@ -420,9 +419,7 @@ class EngineJoinStreamToStreamTest
         result.block.outputWatermark.get shouldEqual ts(11).toInstant
 
         val actual = ParquetHelpers
-          .read[ShipmentStats](
-            lateOrdersLayout.dataDir.resolve(result.dataFileName.get)
-          )
+          .read[ShipmentStats](Paths.get(request.outDataPath))
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(

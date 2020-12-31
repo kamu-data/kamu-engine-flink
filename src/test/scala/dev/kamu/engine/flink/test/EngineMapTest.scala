@@ -1,5 +1,7 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.Paths
+
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
@@ -12,17 +14,17 @@ class EngineMapTest
     extends FunSuite
     with Matchers
     with BeforeAndAfter
-    with TimeHelpers {
+    with TimeHelpers
+    with EngineHelpers {
 
   test("Simple map") {
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       val engineRunner = new EngineRunner(new DockerClient())
 
-      val inputDataDir = tempDir / "data" / "in"
-      val outputDataDir = tempDir / "data" / "out"
-      val outputCheckpointDir = tempDir / "checkpoints" / "out"
+      val inputLayout = tempLayout(tempDir, "in")
+      val outputLayout = tempLayout(tempDir, "out")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
            |source:
@@ -37,23 +39,21 @@ class EngineMapTest
            |        symbol,
            |        price * 10 as price
            |      FROM `in`
-           |inputSlices:
-           |  in:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |dataDirs:
-           |  in: $inputDataDir
-           |  out: $outputDataDir
-           |checkpointsDir: $outputCheckpointDir
+           |inputSlices: {}
+           |newCheckpointDir: ""
+           |outDataPath: ""
            |datasetVocabs:
            |  in: {}
            |  out: {}
            |""".stripMargin
       )
 
-      {
-        ParquetHelpers.write(
-          inputDataDir.resolve("1.parquet"),
+      val checkpointDir = {
+        var request = withRandomOutputPath(requestTemplate, outputLayout)
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
           Seq(
             Ticker(ts(5), ts(1), "A", 10),
             Ticker(ts(5), ts(2), "B", 20),
@@ -72,7 +72,7 @@ class EngineMapTest
         result.block.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
-          .read[Ticker](outputDataDir.resolve(result.dataFileName.get))
+          .read[Ticker](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -81,14 +81,32 @@ class EngineMapTest
           Ticker(ts(10), ts(3), "A", 110),
           Ticker(ts(10), ts(4), "B", 210)
         )
+
+        request.newCheckpointDir
       }
 
-      {
-        ParquetHelpers.write(
-          inputDataDir.resolve("2.parquet"),
+      { // Input comes in two files
+        var request = withRandomOutputPath(
+          requestTemplate,
+          outputLayout,
+          Some(checkpointDir)
+        )
+
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
           Seq(
             Ticker(ts(15), ts(5), "A", 12),
-            Ticker(ts(15), ts(6), "B", 22),
+            Ticker(ts(15), ts(6), "B", 22)
+          )
+        )
+
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
+          Seq(
             Ticker(ts(15), ts(7), "A", 13),
             Ticker(ts(15), ts(8), "B", 23)
           )
@@ -104,7 +122,7 @@ class EngineMapTest
         result.block.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
-          .read[Ticker](outputDataDir.resolve(result.dataFileName.get))
+          .read[Ticker](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(

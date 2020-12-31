@@ -1,5 +1,6 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.Paths
 import java.sql.Timestamp
 
 import pureconfig.generic.auto._
@@ -31,7 +32,8 @@ class EngineJoinStreamToTemporalTableTest
     extends FunSuite
     with Matchers
     with BeforeAndAfter
-    with TimeHelpers {
+    with TimeHelpers
+    with EngineHelpers {
 
   test("Temporal table join") {
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
@@ -41,7 +43,7 @@ class EngineJoinStreamToTemporalTableTest
       val stocksOwnedLayout = tempLayout(tempDir, "stocks.owned")
       val currentValueLayout = tempLayout(tempDir, "value")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: stocks.current-value
            |source:
@@ -66,18 +68,9 @@ class EngineJoinStreamToTemporalTableTest
            |        tickers as t,
            |        LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
            |      WHERE t.symbol = owned.symbol
-           |inputSlices:
-           |  tickers:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |  stocks.owned:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |dataDirs:
-           |  tickers: ${tickersLayout.dataDir}
-           |  stocks.owned: ${stocksOwnedLayout.dataDir}
-           |  stocks.current-value: ${currentValueLayout.dataDir}
-           |checkpointsDir: ${currentValueLayout.checkpointsDir}
+           |inputSlices: {}
+           |newCheckpointDir: ""
+           |outDataPath: ""
            |datasetVocabs:
            |  tickers: {}
            |  stocks.owned: {}
@@ -85,9 +78,13 @@ class EngineJoinStreamToTemporalTableTest
            |""".stripMargin
       )
 
-      {
-        ParquetHelpers.write(
-          tickersLayout.dataDir.resolve("1.parquet"),
+      val lastCheckpoint = {
+        var request = withRandomOutputPath(requestTemplate, currentValueLayout)
+
+        request = withInputData(
+          request,
+          "tickers",
+          tickersLayout.dataDir,
           Seq(
             Ticker(ts(5), ts(1), "A", 10),
             Ticker(ts(5), ts(1), "B", 20),
@@ -100,8 +97,10 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        ParquetHelpers.write(
-          stocksOwnedLayout.dataDir.resolve("1.parquet"),
+        request = withInputData(
+          request,
+          "stocks.owned",
+          stocksOwnedLayout.dataDir,
           Seq(
             StocksOwned(ts(4), ts(2), "A", 100),
             StocksOwned(ts(4), ts(3), "B", 200)
@@ -121,9 +120,7 @@ class EngineJoinStreamToTemporalTableTest
         result.block.outputWatermark.get shouldEqual ts(3).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](
-            currentValueLayout.dataDir.resolve(result.dataFileName.get)
-          )
+          .read[StocksOwnedWithValue](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -131,19 +128,32 @@ class EngineJoinStreamToTemporalTableTest
           StocksOwnedWithValue(ts(10), ts(3), "A", 100, 12, 1200),
           StocksOwnedWithValue(ts(10), ts(3), "B", 200, 22, 4400)
         )
+
+        request.newCheckpointDir
       }
 
       {
-        ParquetHelpers.write(
-          tickersLayout.dataDir.resolve("2.parquet"),
+        var request =
+          withRandomOutputPath(
+            requestTemplate,
+            currentValueLayout,
+            Some(lastCheckpoint)
+          )
+
+        request = withInputData(
+          request,
+          "tickers",
+          tickersLayout.dataDir,
           Seq(
             Ticker(ts(6), ts(5), "A", 15),
             Ticker(ts(6), ts(5), "B", 25)
           )
         )
 
-        ParquetHelpers.write(
-          stocksOwnedLayout.dataDir.resolve("2.parquet"),
+        request = withInputData(
+          request,
+          "stocks.owned",
+          stocksOwnedLayout.dataDir,
           Seq(
             StocksOwned(ts(5), ts(4), "B", 250)
           )
@@ -162,9 +172,7 @@ class EngineJoinStreamToTemporalTableTest
         result.block.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](
-            currentValueLayout.dataDir.resolve(result.dataFileName.get)
-          )
+          .read[StocksOwnedWithValue](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -183,7 +191,7 @@ class EngineJoinStreamToTemporalTableTest
       val stocksOwnedLayout = tempLayout(tempDir, "stocks.owned")
       val currentValueLayout = tempLayout(tempDir, "value")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: stocks.current-value
            |source:
@@ -208,18 +216,9 @@ class EngineJoinStreamToTemporalTableTest
            |        tickers as t,
            |        LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
            |      WHERE t.symbol = owned.symbol
-           |inputSlices:
-           |  tickers:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |  stocks.owned:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |dataDirs:
-           |  tickers: ${tickersLayout.dataDir}
-           |  stocks.owned: ${stocksOwnedLayout.dataDir}
-           |  stocks.current-value: ${currentValueLayout.dataDir}
-           |checkpointsDir: ${currentValueLayout.checkpointsDir}
+           |inputSlices: {}
+           |newCheckpointDir: ""
+           |outDataPath: ""
            |datasetVocabs:
            |  tickers: {}
            |  stocks.owned: {}
@@ -228,8 +227,12 @@ class EngineJoinStreamToTemporalTableTest
       )
 
       {
-        ParquetHelpers.write(
-          tickersLayout.dataDir.resolve("1.parquet"),
+        var request = withRandomOutputPath(requestTemplate, currentValueLayout)
+
+        request = withInputData(
+          request,
+          "tickers",
+          tickersLayout.dataDir,
           Seq(
             Ticker(ts(6), ts(1), "A", 1),
             Ticker(ts(6), ts(2), "A", 2),
@@ -239,8 +242,10 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        ParquetHelpers.write(
-          stocksOwnedLayout.dataDir.resolve("1.parquet"),
+        request = withInputData(
+          request,
+          "stocks.owned",
+          stocksOwnedLayout.dataDir,
           Seq(
             StocksOwned(ts(4), ts(3), "A", 100)
           )
@@ -259,9 +264,7 @@ class EngineJoinStreamToTemporalTableTest
         result.block.outputWatermark.get shouldEqual ts(5).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](
-            currentValueLayout.dataDir.resolve(result.dataFileName.get)
-          )
+          .read[StocksOwnedWithValue](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(

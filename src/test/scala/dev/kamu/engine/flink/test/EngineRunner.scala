@@ -19,6 +19,7 @@ import dev.kamu.core.utils.{
   ExecArgs,
   IOHandlerPresets
 }
+import org.apache.commons.io.FileUtils
 import org.slf4j.LoggerFactory
 
 class EngineRunner(
@@ -86,7 +87,9 @@ class EngineRunner(
 
         jobManager.waitForHostPort(8081, 15 seconds)
 
-        val prevSavepoint = getPrevSavepoint(request)
+        val newCheckpointDir = Paths.get(request.newCheckpointDir)
+        val prevSavepoint =
+          request.prevCheckpointDir.map(p => getPrevSavepoint(Paths.get(p)))
         val savepointArgs = prevSavepoint.map(p => s"-s $p").getOrElse("")
 
         try {
@@ -102,12 +105,14 @@ class EngineRunner(
             )
             .!
 
-          if (exitCode != 0)
+          if (exitCode != 0) {
+            if (newCheckpointDir.toFile.exists()) {
+              FileUtils.deleteDirectory(newCheckpointDir.toFile)
+            }
             throw new RuntimeException(
               s"Engine run failed with exit code: $exitCode"
             )
-
-          commitSavepoint(prevSavepoint)
+          }
 
         } finally {
           val unix = new com.sun.security.auth.module.UnixSystem()
@@ -137,15 +142,12 @@ class EngineRunner(
     }
   }
 
-  protected def getPrevSavepoint(request: ExecuteQueryRequest): Option[Path] = {
-    val checkpointsDir = File(request.checkpointsDir)
-
-    if (!checkpointsDir.exists)
-      return None
-
-    val allSavepoints = checkpointsDir.list
+  protected def getPrevSavepoint(prevCheckpointDir: Path): Path = {
+    val allSavepoints = prevCheckpointDir.toFile
+      .listFiles()
       .filter(_.isDirectory)
-      .map(_.path)
+      .filter(_.getName.startsWith("savepoint-"))
+      .map(_.toPath)
       .toList
 
     // TODO: Atomicity
@@ -154,18 +156,8 @@ class EngineRunner(
         "Multiple checkpoints found: " + allSavepoints.mkString(", ")
       )
 
-    logger.info("Using savepoint: {}", allSavepoints.headOption)
+    logger.info("Using savepoint: {}", allSavepoints.head)
 
-    allSavepoints.headOption
-  }
-
-  // TODO: Atomicity
-  protected def commitSavepoint(oldSavepoint: Option[Path]): Unit = {
-    if (oldSavepoint.isEmpty)
-      return
-
-    logger.info("Deleting savepoint: {}", oldSavepoint)
-
-    oldSavepoint.foreach(p => File(p).delete(true))
+    allSavepoints.head
   }
 }

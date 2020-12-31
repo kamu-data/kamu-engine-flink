@@ -1,6 +1,6 @@
 package dev.kamu.engine.flink
 
-import java.nio.file.{Path, Paths}
+import java.nio.file.{Files, Path, Paths}
 import java.sql.Timestamp
 import java.time.Instant
 import java.util.Scanner
@@ -19,6 +19,7 @@ import dev.kamu.core.manifests.infra.{
 }
 import dev.kamu.core.utils.Clock
 import dev.kamu.core.utils.fs._
+import org.apache.commons.io.FileUtils
 import org.apache.flink.api.common.JobStatus
 import org.apache.flink.api.common.io.FileInputFormat
 import org.apache.flink.api.common.typeinfo.TypeInformation
@@ -68,16 +69,16 @@ class Engine(
   def executeQueryExtended(request: ExecuteQueryRequest): ExecuteQueryResult = {
     val transform = loadTransform(request.source.transform)
 
-    val checkpointsDir = Paths.get(request.checkpointsDir)
-
-    File(checkpointsDir).createDirectories()
+    val prevCheckpointDir = request.prevCheckpointDir.map(Paths.get(_))
+    val newCheckpointDir = Paths.get(request.newCheckpointDir)
+    File(newCheckpointDir).createDirectories()
 
     val inputSlices =
       prepareInputSlices(
         typedMap(request.inputSlices),
         typedMap(request.datasetVocabs),
-        typedMap(request.dataDirs.mapValues(s => Paths.get(s))),
-        checkpointsDir
+        prevCheckpointDir,
+        newCheckpointDir
       )
 
     val resultTable = executeQuery(
@@ -94,7 +95,7 @@ class Engine(
       .toAppendStream[Row]
       .withStats(
         request.datasetID.toString,
-        checkpointsDir.resolve(request.datasetID.toString)
+        newCheckpointDir.resolve(s"${request.datasetID}.stats")
       )
       .withDebugLogging(request.datasetID.toString)
 
@@ -106,29 +107,23 @@ class Engine(
     val avroStream =
       resultStream.map(r => avroConverter.convertRowToAvroRecord(r))
 
-    val dataFilePath = Paths
-      .get(request.dataDirs(request.datasetID.toString))
-      .resolve(
-        systemClock
-          .instant()
-          .toString
-          .replaceAll("[:.]", "") + ".snappy.parquet"
-      )
-
     avroStream.addSink(
       new ParuqetSink(
         avroSchema.toString(),
-        dataFilePath.toUri.getPath
+        request.outDataPath
       )
     )
 
     processAvailableAndStopWithSavepoint(
       inputSlices,
-      Paths.get(request.checkpointsDir)
+      Paths.get(request.newCheckpointDir)
     )
 
     val stats =
-      gatherStats(request.datasetID :: inputSlices.keys.toList, checkpointsDir)
+      gatherStats(
+        request.datasetID :: inputSlices.keys.toList,
+        newCheckpointDir
+      )
 
     val block = MetadataBlock(
       blockHash =
@@ -155,10 +150,7 @@ class Engine(
       )
     )
 
-    ExecuteQueryResult(
-      block = block,
-      dataFileName = Some(File(dataFilePath)).filter(_.exists).map(_.name)
-    )
+    ExecuteQueryResult(block = block)
   }
 
   private def executeQuery(
@@ -303,8 +295,8 @@ class Engine(
   private def prepareInputSlices(
     inputSlices: Map[DatasetID, InputDataSlice],
     inputVocabs: Map[DatasetID, DatasetVocabulary],
-    inputDataDirs: Map[DatasetID, Path],
-    checkpointsDir: Path
+    prevCheckpointDir: Option[Path],
+    newCheckpointDir: Path
   ): Map[DatasetID, InputSlice] = {
     inputSlices.keys.toSeq
       .sortBy(_.toString)
@@ -315,8 +307,8 @@ class Engine(
             id,
             inputSlices(id),
             inputVocabs(id).withDefaults(),
-            inputDataDirs(id),
-            checkpointsDir
+            prevCheckpointDir,
+            newCheckpointDir
           )
         )
       })
@@ -327,20 +319,22 @@ class Engine(
     id: DatasetID,
     slice: InputDataSlice,
     vocab: DatasetVocabulary,
-    dataDir: Path,
-    checkpointsDir: Path
+    prevCheckpointDir: Option[Path],
+    newCheckpointDir: Path
   ): InputSlice = {
-    val markerPath = checkpointsDir.resolve(s"$id.marker")
-    val statsPath = checkpointsDir.resolve(id.toString)
+    val markerPath = newCheckpointDir.resolve(s"$id.marker")
+    val prevStatsPath = prevCheckpointDir.map(_.resolve(s"$id.stats"))
+    val newStatsPath = newCheckpointDir.resolve(s"$id.stats")
 
-    val prevStats = readStats(statsPath)
+    val prevStats = prevStatsPath.map(readStats)
 
     // TODO: use schema from metadata
     val stream =
       sliceData(
         openStream(
           id,
-          dataDir,
+          Paths.get(slice.schemaFile),
+          slice.dataPaths.map(Paths.get(_)),
           markerPath,
           prevStats.flatMap(_.lastWatermark),
           slice.explicitWatermarks
@@ -377,7 +371,7 @@ class Engine(
     )(stream.dataType)
 
     val streamWithStats = streamWithWatermarks
-      .withStats(id.toString, statsPath)
+      .withStats(id.toString, newStatsPath)
       .withDebugLogging(id.toString)
 
     InputSlice(
@@ -432,20 +426,15 @@ class Engine(
 
   private def gatherStats(
     datasetIDs: Seq[DatasetID],
-    checkpointsDir: Path
+    newCheckpointDir: Path
   ): Map[DatasetID, SliceStats] = {
     datasetIDs
-      .map(id => (id, checkpointsDir.resolve(id.toString)))
+      .map(id => (id, newCheckpointDir.resolve(s"$id.stats")))
       .map { case (id, p) => (id, readStats(p)) }
-      .filter(_._2.isDefined)
-      .map { case (id, s) => (id, s.get) }
       .toMap
   }
 
-  private def readStats(path: Path): Option[SliceStats] = {
-    if (!File(path).exists)
-      return None
-
+  private def readStats(path: Path): SliceStats = {
     try {
       val reader = new Scanner(path)
 
@@ -457,14 +446,12 @@ class Engine(
 
       reader.close()
 
-      Some(
-        SliceStats(
-          hash = hash,
-          lastWatermark =
-            if (lLastWatermark == Long.MinValue) None
-            else Some(Instant.ofEpochMilli(lLastWatermark)),
-          numRecords = sRowCount.toLong
-        )
+      SliceStats(
+        hash = hash,
+        lastWatermark =
+          if (lLastWatermark == Long.MinValue) None
+          else Some(Instant.ofEpochMilli(lLastWatermark)),
+        numRecords = sRowCount.toLong
       )
     } catch {
       case e: Exception =>
@@ -476,19 +463,20 @@ class Engine(
 
   private def openStream(
     datasetID: DatasetID,
-    path: Path,
+    schemaFile: Path,
+    filesToRead: Vector[Path],
     markerPath: Path,
     prevWatermark: Option[Instant],
     explicitWatermarks: Vector[Watermark]
   ): DataStream[Row] = {
     // TODO: Ignoring schema evolution
-    val schema = getSchemaFromFile(findFirstParquetFile(path).get)
+    val schema = getSchemaFromFile(schemaFile)
     logger.debug(s"Using following schema:\n$schema")
 
     val messageType = MessageTypeParser.parseMessageType(schema.toString)
 
     val inputFormat = new ParquetRowInputFormat(
-      new FlinkPath(path.toUri.getPath),
+      new FlinkPath(schemaFile.getParent.toUri.getPath),
       messageType
     )
 
@@ -504,6 +492,7 @@ class Engine(
         inputFormat,
         inputFormat.getProducedType,
         datasetID.toString,
+        filesToRead,
         FileProcessingMode.PROCESS_CONTINUOUSLY,
         1000,
         markerPath,
@@ -525,15 +514,12 @@ class Engine(
     schema
   }
 
-  private def findFirstParquetFile(path: Path): Option[Path] = {
-    File(path).glob("*.parquet").map(_.path).toSeq.headOption
-  }
-
   // TODO: This env method is overridden to customize file reader behavior
   private def createFileInput[T](
     inputFormat: FileInputFormat[T],
     typeInfo: TypeInformation[T],
     sourceName: String,
+    filesToRead: Vector[Path],
     monitoringMode: FileProcessingMode,
     interval: Long,
     markerPath: Path,
@@ -543,6 +529,7 @@ class Engine(
     val monitoringFunction =
       new CustomFileMonitoringFunction[T](
         inputFormat,
+        filesToRead.map(_.toUri.getPath).asJava,
         monitoringMode,
         env.getParallelism,
         interval

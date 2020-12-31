@@ -1,12 +1,13 @@
 package dev.kamu.engine.flink.test
 
+import java.nio.file.{Files, Paths}
 import java.sql.Timestamp
 
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, Watermark}
+import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, InputDataSlice}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -32,17 +33,17 @@ class EngineAggregationTest
     extends FunSuite
     with Matchers
     with BeforeAndAfter
-    with TimeHelpers {
+    with TimeHelpers
+    with EngineHelpers {
 
   test("Tumbling window aggregation - ordered") {
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       val engineRunner = new EngineRunner(new DockerClient())
 
-      val inputDataDir = tempDir.resolve("data", "in")
-      val outputDataDir = tempDir.resolve("data", "out")
-      val outputCheckpointDir = tempDir.resolve("checkpoints", "out")
+      val inputLayout = tempLayout(tempDir, "in")
+      val outputLayout = tempLayout(tempDir, "out")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
            |source:
@@ -59,23 +60,21 @@ class EngineAggregationTest
            |        max(price) as `max`
            |      FROM `in`
            |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-           |inputSlices:
-           |  in:
-           |    interval: "(-inf, inf)"
-           |    explicitWatermarks: []
-           |dataDirs:
-           |  in: $inputDataDir
-           |  out: $outputDataDir
-           |checkpointsDir: $outputCheckpointDir
+           |inputSlices: {}
+           |newCheckpointDir: ""
+           |outDataPath: ""
            |datasetVocabs:
            |  in: {}
            |  out: {}
            |""".stripMargin
       )
 
-      {
-        ParquetHelpers.write(
-          inputDataDir.resolve("1.parquet"),
+      var lastCheckpointDir = {
+        var request = withRandomOutputPath(requestTemplate, outputLayout)
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
           Seq(
             Ticker(ts(5), ts(1, 1), "A", 10),
             Ticker(ts(5), ts(1, 1), "B", 20),
@@ -106,7 +105,7 @@ class EngineAggregationTest
         result.block.outputWatermark.get shouldEqual ts(3, 2).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .read[TickerSummary](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -115,11 +114,20 @@ class EngineAggregationTest
           TickerSummary(ts(10), ts(2), "A", 12, 13),
           TickerSummary(ts(10), ts(2), "B", 22, 23)
         )
+
+        request.newCheckpointDir
       }
 
-      {
-        ParquetHelpers.write(
-          inputDataDir.resolve("2.parquet"),
+      lastCheckpointDir = {
+        var request = withRandomOutputPath(
+          requestTemplate,
+          outputLayout,
+          Some(lastCheckpointDir)
+        )
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
           Seq(
             Ticker(ts(15), ts(4, 1), "A", 16),
             Ticker(ts(15), ts(4, 1), "B", 26),
@@ -143,7 +151,7 @@ class EngineAggregationTest
         result.block.outputWatermark.get shouldEqual ts(5, 2).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .read[TickerSummary](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -152,11 +160,20 @@ class EngineAggregationTest
           TickerSummary(ts(20), ts(4), "A", 16, 17),
           TickerSummary(ts(20), ts(4), "B", 26, 27)
         )
+
+        request.newCheckpointDir
       }
 
-      {
-        ParquetHelpers.write(
-          inputDataDir.resolve("3.parquet"),
+      val (lastCheckpointDir2, lastInputFile) = {
+        var request = withRandomOutputPath(
+          requestTemplate,
+          outputLayout,
+          Some(lastCheckpointDir)
+        )
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
           Seq(
             Ticker(ts(20), ts(6, 1), "A", 20),
             Ticker(ts(20), ts(6, 1), "B", 30)
@@ -174,16 +191,34 @@ class EngineAggregationTest
         result.block.outputWatermark.get shouldEqual ts(6, 1).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .read[TickerSummary](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(30), ts(5), "A", 18, 19),
           TickerSummary(ts(30), ts(5), "B", 28, 29)
         )
-      }
 
-      { // Advances watermark without new data
+        (request.newCheckpointDir, request.inputSlices("in").dataPaths(0))
+      }
+      lastCheckpointDir = lastCheckpointDir2
+
+      lastCheckpointDir = { // Advances watermark without new data
+        var request = withRandomOutputPath(
+          requestTemplate,
+          outputLayout,
+          Some(lastCheckpointDir)
+        )
+        request = request.copy(
+          inputSlices = Map(
+            "in" -> InputDataSlice(
+              interval = Interval.empty,
+              schemaFile = lastInputFile,
+              dataPaths = Vector.empty
+            )
+          )
+        )
+
         val result = engineRunner.run(
           withWatermarks(request, Map("in" -> ts(7, 1))),
           tempDir,
@@ -195,17 +230,34 @@ class EngineAggregationTest
         result.block.outputWatermark.get shouldEqual ts(7, 1).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .read[TickerSummary](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(31), ts(6), "A", 20, 20),
           TickerSummary(ts(31), ts(6), "B", 30, 30)
         )
+
+        request.newCheckpointDir
       }
 
       { // Advances watermark again without expecting any output this time
         // Verifying that previous watermark is propagated
+        var request = withRandomOutputPath(
+          requestTemplate,
+          outputLayout,
+          Some(lastCheckpointDir)
+        )
+        request = request.copy(
+          inputSlices = Map(
+            "in" -> InputDataSlice(
+              interval = Interval.empty,
+              schemaFile = lastInputFile,
+              dataPaths = Vector.empty
+            )
+          )
+        )
+
         val result = engineRunner.run(
           withWatermarks(request, Map("in" -> ts(8))),
           tempDir,
@@ -215,6 +267,8 @@ class EngineAggregationTest
         result.block.inputSlices.get.apply(0).numRecords shouldEqual 0
         result.block.outputSlice.get.numRecords shouldEqual 0
         result.block.outputWatermark.get shouldEqual ts(8).toInstant
+
+        assert(!Files.exists(Paths.get(request.outDataPath)))
       }
     }
   }
@@ -223,11 +277,10 @@ class EngineAggregationTest
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       val engineRunner = new EngineRunner(new DockerClient())
 
-      val inputDataDir = tempDir.resolve("data", "in")
-      val outputDataDir = tempDir.resolve("data", "out")
-      val outputCheckpointDir = tempDir.resolve("checkpoints", "out")
+      val inputLayout = tempLayout(tempDir, "in")
+      val outputLayout = tempLayout(tempDir, "out")
 
-      val request = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
           |datasetID: out
           |source:
@@ -244,23 +297,21 @@ class EngineAggregationTest
           |        max(price) as `max`
           |      FROM `in`
           |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-          |inputSlices:
-          |  in:
-          |    interval: "(-inf, inf)"
-          |    explicitWatermarks: []
-          |dataDirs:
-          |  in: $inputDataDir
-          |  out: $outputDataDir
-          |checkpointsDir: $outputCheckpointDir
+          |inputSlices: {}
+          |newCheckpointDir: ""
+          |outDataPath: ""
           |datasetVocabs:
           |  in: {}
           |  out: {}
           |""".stripMargin
       )
 
-      {
-        ParquetHelpers.write(
-          inputDataDir.resolve("1.parquet"),
+      val lastCheckpointDir = {
+        var request = withRandomOutputPath(requestTemplate, outputLayout)
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
           Seq(
             Ticker(ts(5), ts(1, 1), "A", 10),
             Ticker(ts(5), ts(1, 1), "B", 20),
@@ -289,18 +340,27 @@ class EngineAggregationTest
         result.block.outputWatermark.get shouldEqual ts(2, 2).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .read[TickerSummary](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
           TickerSummary(ts(10), ts(1), "A", 10, 11),
           TickerSummary(ts(10), ts(1), "B", 20, 21)
         )
+
+        request.newCheckpointDir
       }
 
       {
-        ParquetHelpers.write(
-          inputDataDir.resolve("2.parquet"),
+        var request = withRandomOutputPath(
+          requestTemplate,
+          outputLayout,
+          Some(lastCheckpointDir)
+        )
+        request = withInputData(
+          request,
+          "in",
+          inputLayout.dataDir,
           Seq(
             Ticker(ts(10), ts(1, 4), "A", 12), // Two days late and will be discarded
             Ticker(ts(10), ts(4, 1), "A", 16),
@@ -323,7 +383,7 @@ class EngineAggregationTest
         result.block.outputWatermark.get shouldEqual ts(4, 1).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](outputDataDir.resolve(result.dataFileName.get))
+          .read[TickerSummary](Paths.get(request.outDataPath))
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
