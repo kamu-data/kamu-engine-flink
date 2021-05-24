@@ -138,13 +138,16 @@ class Engine(
         "0000000000000000000000000000000000000000000000000000000000000000",
       prevBlockHash = None,
       systemTime = systemClock.instant(),
-      outputSlice = Some(
-        DataSlice(
-          hash = stats(request.datasetID).hash,
-          interval = Interval.point(systemClock.instant()),
-          numRecords = stats(request.datasetID).numRecords
-        )
-      ),
+      outputSlice =
+        if (stats(request.datasetID).numRecords > 0)
+          Some(
+            DataSlice(
+              hash = stats(request.datasetID).hash,
+              interval = Interval.point(systemClock.instant()),
+              numRecords = stats(request.datasetID).numRecords
+            )
+          )
+        else None,
       outputWatermark = stats(request.datasetID).lastWatermark,
       inputSlices = Some(
         request.source.inputs.map(

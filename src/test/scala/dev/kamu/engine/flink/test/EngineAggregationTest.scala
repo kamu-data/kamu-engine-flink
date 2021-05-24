@@ -265,7 +265,7 @@ class EngineAggregationTest
         )
 
         result.block.inputSlices.get.apply(0).numRecords shouldEqual 0
-        result.block.outputSlice.get.numRecords shouldEqual 0
+        result.block.outputSlice shouldBe None
         result.block.outputWatermark.get shouldEqual ts(8).toInstant
 
         assert(!Files.exists(Paths.get(request.outDataPath)))
