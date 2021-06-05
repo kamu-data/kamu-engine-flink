@@ -70,7 +70,7 @@ lazy val kamuCoreManifests = project
 
 lazy val versions = new {
   val betterFiles = "3.9.1"
-  val flink = "1.13.0"
+  val flink = "1.13.1"
   val pureConfig = "0.13.0"
   val spire = "0.13.0"
 }
