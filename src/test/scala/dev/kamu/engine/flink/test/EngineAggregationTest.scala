@@ -21,6 +21,12 @@ case class Ticker(
   price: Int
 )
 
+case class TickerNoSystemTime(
+  event_time: Timestamp,
+  symbol: String,
+  price: Int
+)
+
 case class TickerSummary(
   system_time: Timestamp,
   event_time: Timestamp,

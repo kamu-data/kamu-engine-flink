@@ -86,22 +86,31 @@ class Engine(
         newCheckpointDir
       )
 
-    val resultTable = executeQuery(
+    val resultRawTable = executeQuery(
       request.datasetID,
       inputSlices,
       typedMap(request.datasetVocabs),
       transform
     )
 
-    logger.info(s"Result schema:\n${resultTable.getSchema}")
-
-    // Computes row count and data hash
-    val resultStream = resultTable
+    // Attach stats (before system_time column is added)
+    resultRawTable
       .toAppendStream[Row]
       .withStats(
         request.datasetID.toString,
         newCheckpointDir.resolve(s"${request.datasetID}.stats")
       )
+
+    // Add system_time column
+    val resultTable = tEnv
+      .sqlQuery(
+        s"SELECT CAST('${systemClock.timestamp()}' as TIMESTAMP) as `system_time`, * FROM `${request.datasetID}`"
+      )
+
+    logger.info(s"Result schema:\n${resultTable.getSchema}")
+
+    val resultStream = resultTable
+      .toAppendStream[Row]
       .withDebugLogging(request.datasetID.toString)
 
     // Convert to Avro so we can then save in Parquet :(
@@ -231,7 +240,7 @@ class Engine(
     }
 
     // Get result
-    val result = tEnv.sqlQuery(s"SELECT * FROM `$datasetID`")
+    val result = tEnv.from(datasetID.toString)
 
     val resultVocab = datasetVocabs(datasetID).withDefaults()
 
@@ -252,9 +261,7 @@ class Engine(
           result.getSchema.getTableColumns.asScala.map(_.getName).mkString(", ")
       )
 
-    tEnv.sqlQuery(
-      s"SELECT CAST('${systemClock.timestamp()}' as TIMESTAMP) as `system_time`, * FROM `$datasetID`"
-    )
+    result
   }
 
   private def processAvailableAndStopWithSavepoint(
