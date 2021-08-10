@@ -24,11 +24,11 @@ class EngineHashTest
       val engineRunner = new EngineRunner(new DockerClient())
 
       val inputLayout = tempLayout(tempDir, "in")
-      val outputLayout = tempLayout(tempDir, "out")
+      val outputLayout = tempLayout(tempDir, "o.u.t")
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: out
+           |datasetID: o.u.t
            |source:
            |  inputs:
            |    - in
@@ -42,7 +42,7 @@ class EngineHashTest
            |outDataPath: ""
            |datasetVocabs:
            |  in: {}
-           |  out: {}
+           |  o.u.t: {}
            |""".stripMargin
       )
 

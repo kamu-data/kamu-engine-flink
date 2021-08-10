@@ -240,7 +240,7 @@ class Engine(
     }
 
     // Get result
-    val result = tEnv.from(datasetID.toString)
+    val result = tEnv.from(s"`$datasetID`")
 
     val resultVocab = datasetVocabs(datasetID).withDefaults()
 
