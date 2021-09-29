@@ -5,7 +5,7 @@ import java.nio.file.Paths
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+import dev.kamu.core.manifests.ExecuteQueryRequest
 import dev.kamu.core.utils.{DockerClient, Temp}
 import dev.kamu.core.utils.fs._
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -27,24 +27,19 @@ class EngineMapTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
-           |source:
-           |  inputs:
-           |    - in
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    query: >
-           |      SELECT
-           |        event_time,
-           |        symbol,
-           |        price * 10 as price
-           |      FROM `in`
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  query: >
+           |    SELECT
+           |      event_time,
+           |      symbol,
+           |      price * 10 as price
+           |    FROM `in`
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  in: {}
-           |  out: {}
+           |vocab: {}
            |""".stripMargin
       )
 
@@ -68,11 +63,11 @@ class EngineMapTest
           ts(10)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 4
-        result.block.outputWatermark.get shouldEqual ts(4).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
-          .read[Ticker](Paths.get(request.outDataPath))
+          .read[Ticker](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -118,11 +113,11 @@ class EngineMapTest
           ts(20)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 4
-        result.block.outputWatermark.get shouldEqual ts(8).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
-          .read[Ticker](Paths.get(request.outDataPath))
+          .read[Ticker](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(

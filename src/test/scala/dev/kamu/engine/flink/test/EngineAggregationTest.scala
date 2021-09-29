@@ -7,7 +7,7 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, InputDataSlice}
+import dev.kamu.core.manifests.{ExecuteQueryRequest, QueryInput}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -52,26 +52,21 @@ class EngineAggregationTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
-           |source:
-           |  inputs:
-           |    - in
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    query: >
-           |      SELECT
-           |        TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
-           |        symbol as symbol,
-           |        min(price) as `min`,
-           |        max(price) as `max`
-           |      FROM `in`
-           |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-           |inputSlices: {}
+           |vocab: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  query: >
+           |    SELECT
+           |      TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
+           |      symbol as symbol,
+           |      min(price) as `min`,
+           |      max(price) as `max`
+           |    FROM `in`
+           |    GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  in: {}
-           |  out: {}
            |""".stripMargin
       )
 
@@ -103,15 +98,16 @@ class EngineAggregationTest
           ts(10)
         )
 
-        result.block.inputSlices.get.apply(0).numRecords shouldEqual 12
-        result.block.outputSlice.get.numRecords shouldEqual 4
-        result.block.outputSlice.get.interval shouldEqual Interval.point(
-          ts(10).toInstant
-        )
-        result.block.outputWatermark.get shouldEqual ts(3, 2).toInstant
+        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 12
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputSlice.get.interval shouldEqual Interval
+          .point(
+            ts(10).toInstant
+          )
+        result.metadataBlock.outputWatermark.get shouldEqual ts(3, 2).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](Paths.get(request.outDataPath))
+          .read[TickerSummary](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -152,12 +148,12 @@ class EngineAggregationTest
           ts(20)
         )
 
-        result.block.inputSlices.get.apply(0).numRecords shouldEqual 8
-        result.block.outputSlice.get.numRecords shouldEqual 4
-        result.block.outputWatermark.get shouldEqual ts(5, 2).toInstant
+        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 8
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputWatermark.get shouldEqual ts(5, 2).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](Paths.get(request.outDataPath))
+          .read[TickerSummary](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -192,12 +188,12 @@ class EngineAggregationTest
           ts(30)
         )
 
-        result.block.inputSlices.get.apply(0).numRecords shouldEqual 2
-        result.block.outputSlice.get.numRecords shouldEqual 2
-        result.block.outputWatermark.get shouldEqual ts(6, 1).toInstant
+        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputWatermark.get shouldEqual ts(6, 1).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](Paths.get(request.outDataPath))
+          .read[TickerSummary](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -205,7 +201,13 @@ class EngineAggregationTest
           TickerSummary(ts(30), ts(5), "B", 28, 29)
         )
 
-        (request.newCheckpointDir, request.inputSlices("in").dataPaths(0))
+        (
+          request.newCheckpointDir,
+          request.inputs
+            .find(i => i.datasetID.toString == "in")
+            .get
+            .dataPaths(0)
+        )
       }
       lastCheckpointDir = lastCheckpointDir2
 
@@ -216,11 +218,14 @@ class EngineAggregationTest
           Some(lastCheckpointDir)
         )
         request = request.copy(
-          inputSlices = Map(
-            "in" -> InputDataSlice(
+          inputs = Vector(
+            QueryInput(
+              datasetID = DatasetID("in"),
               interval = Interval.empty,
               schemaFile = lastInputFile,
-              dataPaths = Vector.empty
+              dataPaths = Vector.empty,
+              vocab = DatasetVocabulary(None, None),
+              explicitWatermarks = Vector.empty
             )
           )
         )
@@ -231,12 +236,12 @@ class EngineAggregationTest
           ts(31)
         )
 
-        result.block.inputSlices.get.apply(0).numRecords shouldEqual 0
-        result.block.outputSlice.get.numRecords shouldEqual 2
-        result.block.outputWatermark.get shouldEqual ts(7, 1).toInstant
+        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 0
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputWatermark.get shouldEqual ts(7, 1).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](Paths.get(request.outDataPath))
+          .read[TickerSummary](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -255,11 +260,14 @@ class EngineAggregationTest
           Some(lastCheckpointDir)
         )
         request = request.copy(
-          inputSlices = Map(
-            "in" -> InputDataSlice(
+          inputs = Vector(
+            QueryInput(
+              datasetID = DatasetID("in"),
               interval = Interval.empty,
               schemaFile = lastInputFile,
-              dataPaths = Vector.empty
+              dataPaths = Vector.empty,
+              vocab = DatasetVocabulary(None, None),
+              explicitWatermarks = Vector.empty
             )
           )
         )
@@ -270,11 +278,11 @@ class EngineAggregationTest
           ts(31)
         )
 
-        result.block.inputSlices.get.apply(0).numRecords shouldEqual 0
-        result.block.outputSlice shouldBe None
-        result.block.outputWatermark.get shouldEqual ts(8).toInstant
+        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 0
+        result.metadataBlock.outputSlice shouldBe None
+        result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
 
-        assert(!Files.exists(Paths.get(request.outDataPath)))
+        assert(!Files.exists(request.outDataPath))
       }
     }
   }
@@ -289,26 +297,21 @@ class EngineAggregationTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
           |datasetID: out
-          |source:
-          |  inputs:
-          |    - in
-          |  transform:
-          |    kind: sql
-          |    engine: flink
-          |    query: >
-          |      SELECT
-          |        TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
-          |        symbol as symbol,
-          |        min(price) as `min`,
-          |        max(price) as `max`
-          |      FROM `in`
-          |      GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-          |inputSlices: {}
+          |transform:
+          |  kind: sql
+          |  engine: flink
+          |  query: >
+          |    SELECT
+          |      TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
+          |      symbol as symbol,
+          |      min(price) as `min`,
+          |      max(price) as `max`
+          |    FROM `in`
+          |    GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
+          |inputs: []
           |newCheckpointDir: ""
           |outDataPath: ""
-          |datasetVocabs:
-          |  in: {}
-          |  out: {}
+          |vocab: {}
           |""".stripMargin
       )
 
@@ -341,12 +344,12 @@ class EngineAggregationTest
           ts(10)
         )
 
-        result.block.inputSlices.get.apply(0).numRecords shouldEqual 13
-        result.block.outputSlice.get.numRecords shouldEqual 2
-        result.block.outputWatermark.get shouldEqual ts(2, 2).toInstant
+        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 13
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputWatermark.get shouldEqual ts(2, 2).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](Paths.get(request.outDataPath))
+          .read[TickerSummary](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -384,12 +387,12 @@ class EngineAggregationTest
           ts(20)
         )
 
-        result.block.inputSlices.get.apply(0).numRecords shouldEqual 7
-        result.block.outputSlice.get.numRecords shouldEqual 4
-        result.block.outputWatermark.get shouldEqual ts(4, 1).toInstant
+        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 7
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputWatermark.get shouldEqual ts(4, 1).toInstant
 
         val actual = ParquetHelpers
-          .read[TickerSummary](Paths.get(request.outDataPath))
+          .read[TickerSummary](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(

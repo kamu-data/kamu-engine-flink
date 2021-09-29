@@ -10,10 +10,10 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.{
+import dev.kamu.core.manifests.{
   ExecuteQueryRequest,
-  ExecuteQueryResult,
-  InputDataSlice,
+  ExecuteQueryResponse,
+  QueryInput,
   Watermark
 }
 import dev.kamu.core.utils.Clock
@@ -71,25 +71,28 @@ class Engine(
 ) {
   private val logger = LoggerFactory.getLogger(classOf[Engine])
 
-  def executeQueryExtended(request: ExecuteQueryRequest): ExecuteQueryResult = {
-    val transform = loadTransform(request.source.transform)
+  def executeQueryExtended(
+    request: ExecuteQueryRequest
+  ): ExecuteQueryResponse = {
+    val transform = loadTransform(request.transform)
 
-    val prevCheckpointDir = request.prevCheckpointDir.map(Paths.get(_))
-    val newCheckpointDir = Paths.get(request.newCheckpointDir)
-    File(newCheckpointDir).createDirectories()
+    File(request.newCheckpointDir).createDirectories()
 
     val inputSlices =
       prepareInputSlices(
-        typedMap(request.inputSlices),
-        typedMap(request.datasetVocabs),
-        prevCheckpointDir,
-        newCheckpointDir
+        request.inputs,
+        request.prevCheckpointDir,
+        request.newCheckpointDir
       )
+
+    val datasetVocabs = request.inputs
+      .map(i => (i.datasetID, i.vocab.withDefaults()))
+      .toMap + (request.datasetID -> request.vocab.withDefaults())
 
     val resultRawTable = executeQuery(
       request.datasetID,
       inputSlices,
-      typedMap(request.datasetVocabs),
+      datasetVocabs,
       transform
     )
 
@@ -98,7 +101,7 @@ class Engine(
       .toAppendStream[Row]
       .withStats(
         request.datasetID.toString,
-        newCheckpointDir.resolve(s"${request.datasetID}.stats")
+        request.newCheckpointDir.resolve(s"${request.datasetID}.stats")
       )
 
     // Add system_time column
@@ -111,7 +114,7 @@ class Engine(
 
     val resultStream = resultTable
       .toAppendStream[Row]
-      .withDebugLogging(request.datasetID.toString)
+    //.withDebugLogging(request.datasetID.toString)
 
     // Convert to Avro so we can then save in Parquet :(
     val avroSchema = SchemaConverter.convert(resultTable.getSchema)
@@ -127,19 +130,19 @@ class Engine(
     avroStream.addSink(
       new ParuqetSink(
         avroSchema.toString(),
-        request.outDataPath
+        request.outDataPath.toString
       )
     )
 
     processAvailableAndStopWithSavepoint(
       inputSlices,
-      Paths.get(request.newCheckpointDir)
+      request.newCheckpointDir
     )
 
     val stats =
       gatherStats(
         request.datasetID :: inputSlices.keys.toList,
-        newCheckpointDir
+        request.newCheckpointDir
       )
 
     val block = MetadataBlock(
@@ -159,18 +162,18 @@ class Engine(
         else None,
       outputWatermark = stats(request.datasetID).lastWatermark,
       inputSlices = Some(
-        request.source.inputs.map(
-          id =>
+        request.inputs.map(
+          i =>
             DataSlice(
-              hash = stats(id).hash,
-              interval = inputSlices(id).interval,
-              numRecords = stats(id).numRecords
+              hash = stats(i.datasetID).hash,
+              interval = inputSlices(i.datasetID).interval,
+              numRecords = stats(i.datasetID).numRecords
             )
         )
       )
     )
 
-    ExecuteQueryResult(block = block)
+    ExecuteQueryResponse.Success(block)
   }
 
   private def executeQuery(
@@ -311,20 +314,16 @@ class Engine(
   }
 
   private def prepareInputSlices(
-    inputSlices: Map[DatasetID, InputDataSlice],
-    inputVocabs: Map[DatasetID, DatasetVocabulary],
+    inputs: Vector[QueryInput],
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
   ): Map[DatasetID, InputSlice] = {
-    inputSlices.keys.toSeq
-      .sortBy(_.toString)
-      .map(id => {
+    inputs
+      .map(input => {
         (
-          id,
+          input.datasetID,
           prepareInputSlice(
-            id,
-            inputSlices(id),
-            inputVocabs(id).withDefaults(),
+            input,
             prevCheckpointDir,
             newCheckpointDir
           )
@@ -334,30 +333,30 @@ class Engine(
   }
 
   private def prepareInputSlice(
-    id: DatasetID,
-    slice: InputDataSlice,
-    vocab: DatasetVocabulary,
+    input: QueryInput,
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
   ): InputSlice = {
-    val markerPath = newCheckpointDir.resolve(s"$id.marker")
-    val prevStatsPath = prevCheckpointDir.map(_.resolve(s"$id.stats"))
-    val newStatsPath = newCheckpointDir.resolve(s"$id.stats")
+    val markerPath = newCheckpointDir.resolve(s"${input.datasetID}.marker")
+    val prevStatsPath =
+      prevCheckpointDir.map(_.resolve(s"${input.datasetID}.stats"))
+    val newStatsPath = newCheckpointDir.resolve(s"${input.datasetID}.stats")
 
     val prevStats = prevStatsPath.map(readStats)
+    val vocab = input.vocab.withDefaults()
 
     // TODO: use schema from metadata
     val stream =
       sliceData(
         openStream(
-          id,
-          Paths.get(slice.schemaFile),
-          slice.dataPaths.map(Paths.get(_)),
+          input.datasetID,
+          input.schemaFile,
+          input.dataPaths,
           markerPath,
           prevStats.flatMap(_.lastWatermark),
-          slice.explicitWatermarks
+          input.explicitWatermarks
         ),
-        slice.interval,
+        input.interval,
         vocab
       )
 
@@ -389,12 +388,12 @@ class Engine(
     )(stream.dataType)
 
     val streamWithStats = streamWithWatermarks
-      .withStats(id.toString, newStatsPath)
-      .withDebugLogging(id.toString)
+      .withStats(input.datasetID.toString, newStatsPath)
+    //.withDebugLogging(input.datasetID.toString)
 
     InputSlice(
       dataStream = streamWithStats,
-      interval = slice.interval,
+      interval = input.interval,
       markerPath = markerPath
     )
   }

@@ -1,0 +1,27 @@
+[package]
+name = "kamu-engine-spark-adapter"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Kamu
+opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "odf_engine_adapter" }
+# opendatafabric = { path = "../../kamu-cli/opendatafabric" }
+
+# RPC
+libc = "*"
+prost = "*"
+tonic = "*"
+tokio = { version = "*", features = ["macros", "rt-multi-thread", "process"] }
+tokio-stream = "*"
+
+# Serialization
+serde = { version = "*", features = ["derive"] }
+serde_with = "*"
+serde_yaml = "*"
+
+# Tracing / logging / telemetry
+tracing = "*"  
+tracing-subscriber = "*"
+tracing-log = "*"
+tracing-bunyan-formatter = "*"

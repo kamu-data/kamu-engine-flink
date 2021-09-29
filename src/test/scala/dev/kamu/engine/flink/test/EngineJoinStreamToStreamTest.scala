@@ -6,7 +6,7 @@ import java.sql.Timestamp
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+import dev.kamu.core.manifests.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -64,34 +64,27 @@ class EngineJoinStreamToStreamTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: shipped_orders
-           |source:
-           |  inputs:
-           |    - orders
-           |    - shipments
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    query: >
-           |      SELECT
-           |        o.event_time as order_time,
-           |        o.order_id,
-           |        o.quantity as order_quantity,
-           |        CAST(s.event_time as TIMESTAMP) as shipped_time,
-           |        COALESCE(s.num_shipped, 0) as shipped_quantity
-           |      FROM
-           |        orders as o
-           |      LEFT JOIN shipments as s
-           |      ON
-           |        o.order_id = s.order_id
-           |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  query: >
+           |    SELECT
+           |      o.event_time as order_time,
+           |      o.order_id,
+           |      o.quantity as order_quantity,
+           |      CAST(s.event_time as TIMESTAMP) as shipped_time,
+           |      COALESCE(s.num_shipped, 0) as shipped_quantity
+           |    FROM
+           |      orders as o
+           |    LEFT JOIN shipments as s
+           |    ON
+           |      o.order_id = s.order_id
+           |      AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  orders: {}
-           |  shipments: {}
-           |  shipped_orders:
-           |    eventTimeColumn: order_time
+           |vocab:
+           |  eventTimeColumn: order_time
            |""".stripMargin
       )
 
@@ -126,10 +119,10 @@ class EngineJoinStreamToStreamTest
           ts(10)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 3
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 3
 
         val actual = ParquetHelpers
-          .read[ShippedOrder](Paths.get(request.outDataPath))
+          .read[ShippedOrder](request.outDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -176,11 +169,11 @@ class EngineJoinStreamToStreamTest
           ts(20)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 2
-        result.block.outputWatermark.get shouldEqual ts(8).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
-          .read[ShippedOrder](Paths.get(request.outDataPath))
+          .read[ShippedOrder](request.outDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -202,53 +195,46 @@ class EngineJoinStreamToStreamTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: late_orders
-           |source:
-           |  inputs:
-           |    - orders
-           |    - shipments
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    queries:
-           |    - alias: order_shipments
-           |      query: >
-           |        SELECT
-           |          o.event_time as order_time,
-           |          o.order_id,
-           |          o.quantity as order_quantity,
-           |          CAST(s.event_time as TIMESTAMP) as shipped_time,
-           |          COALESCE(s.num_shipped, 0) as shipped_quantity
-           |        FROM
-           |          orders as o
-           |        LEFT JOIN shipments as s
-           |        ON
-           |          o.order_id = s.order_id
-           |          AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
-           |    - alias: shipment_stats
-           |      query: >
-           |        SELECT
-           |          TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
-           |          order_id,
-           |          count(*) as num_shipments,
-           |          min(shipped_time) as first_shipment,
-           |          max(shipped_time) as last_shipment,
-           |          min(order_quantity) as order_quantity,
-           |          sum(shipped_quantity) as shipped_quantity_total
-           |        FROM order_shipments
-           |        GROUP BY TUMBLE(order_time, INTERVAL '1' DAY), order_id
-           |    - alias: late_orders
-           |      query: >
-           |        SELECT *
-           |        FROM shipment_stats
-           |        WHERE order_quantity <> shipped_quantity_total
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  queries:
+           |  - alias: order_shipments
+           |    query: >
+           |      SELECT
+           |        o.event_time as order_time,
+           |        o.order_id,
+           |        o.quantity as order_quantity,
+           |        CAST(s.event_time as TIMESTAMP) as shipped_time,
+           |        COALESCE(s.num_shipped, 0) as shipped_quantity
+           |      FROM
+           |        orders as o
+           |      LEFT JOIN shipments as s
+           |      ON
+           |        o.order_id = s.order_id
+           |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
+           |  - alias: shipment_stats
+           |    query: >
+           |      SELECT
+           |        TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
+           |        order_id,
+           |        count(*) as num_shipments,
+           |        min(shipped_time) as first_shipment,
+           |        max(shipped_time) as last_shipment,
+           |        min(order_quantity) as order_quantity,
+           |        sum(shipped_quantity) as shipped_quantity_total
+           |      FROM order_shipments
+           |      GROUP BY TUMBLE(order_time, INTERVAL '1' DAY), order_id
+           |  - alias: late_orders
+           |    query: >
+           |      SELECT *
+           |      FROM shipment_stats
+           |      WHERE order_quantity <> shipped_quantity_total
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  orders: {}
-           |  shipments: {}
-           |  late_orders:
-           |    eventTimeColumn: order_time
+           |vocab:
+           |  eventTimeColumn: order_time
            |""".stripMargin
       )
 
@@ -292,11 +278,11 @@ class EngineJoinStreamToStreamTest
           ts(20)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 2
-        result.block.outputWatermark.get shouldEqual ts(13).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputWatermark.get shouldEqual ts(13).toInstant
 
         val actual = ParquetHelpers
-          .read[ShipmentStats](Paths.get(request.outDataPath))
+          .read[ShipmentStats](request.outDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -327,53 +313,46 @@ class EngineJoinStreamToStreamTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: late_orders
-           |source:
-           |  inputs:
-           |    - orders
-           |    - shipments
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    queries:
-           |    - alias: order_shipments
-           |      query: >
-           |        SELECT
-           |          o.event_time as order_time,
-           |          o.order_id,
-           |          o.quantity as order_quantity,
-           |          CAST(s.event_time as TIMESTAMP) as shipped_time,
-           |          COALESCE(s.num_shipped, 0) as shipped_quantity
-           |        FROM
-           |          orders as o
-           |        LEFT JOIN shipments as s
-           |        ON
-           |          o.order_id = s.order_id
-           |          AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
-           |    - alias: shipment_stats
-           |      query: >
-           |        SELECT
-           |          TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
-           |          order_id,
-           |          count(*) as num_shipments,
-           |          min(shipped_time) as first_shipment,
-           |          max(shipped_time) as last_shipment,
-           |          min(order_quantity) as order_quantity,
-           |          sum(shipped_quantity) as shipped_quantity_total
-           |        FROM order_shipments
-           |        GROUP BY TUMBLE(order_time, INTERVAL '1' DAY), order_id
-           |    - alias: late_orders
-           |      query: >
-           |        SELECT *
-           |        FROM shipment_stats
-           |        WHERE order_quantity <> shipped_quantity_total
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  queries:
+           |  - alias: order_shipments
+           |    query: >
+           |      SELECT
+           |        o.event_time as order_time,
+           |        o.order_id,
+           |        o.quantity as order_quantity,
+           |        CAST(s.event_time as TIMESTAMP) as shipped_time,
+           |        COALESCE(s.num_shipped, 0) as shipped_quantity
+           |      FROM
+           |        orders as o
+           |      LEFT JOIN shipments as s
+           |      ON
+           |        o.order_id = s.order_id
+           |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
+           |  - alias: shipment_stats
+           |    query: >
+           |      SELECT
+           |        TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
+           |        order_id,
+           |        count(*) as num_shipments,
+           |        min(shipped_time) as first_shipment,
+           |        max(shipped_time) as last_shipment,
+           |        min(order_quantity) as order_quantity,
+           |        sum(shipped_quantity) as shipped_quantity_total
+           |      FROM order_shipments
+           |      GROUP BY TUMBLE(order_time, INTERVAL '1' DAY), order_id
+           |  - alias: late_orders
+           |    query: >
+           |      SELECT *
+           |      FROM shipment_stats
+           |      WHERE order_quantity <> shipped_quantity_total
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  orders: {}
-           |  shipments: {}
-           |  late_orders:
-           |    eventTimeColumn: order_time
+           |vocab:
+           |  eventTimeColumn: order_time
            |""".stripMargin
       )
 
@@ -415,11 +394,11 @@ class EngineJoinStreamToStreamTest
           ts(20)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 2
-        result.block.outputWatermark.get shouldEqual ts(11).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputWatermark.get shouldEqual ts(11).toInstant
 
         val actual = ParquetHelpers
-          .read[ShipmentStats](Paths.get(request.outDataPath))
+          .read[ShipmentStats](request.outDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(

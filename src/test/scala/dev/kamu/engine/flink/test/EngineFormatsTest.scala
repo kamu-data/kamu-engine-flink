@@ -8,7 +8,7 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+import dev.kamu.core.manifests.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -60,24 +60,19 @@ class EngineFormatsTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
-           |source:
-           |  inputs:
-           |    - in
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    query: >
-           |      SELECT
-           |        event_time,
-           |        CAST(`value` as DECIMAL(13,4)) as decimal_13_4,
-           |        CAST(`value` as DECIMAL(38,18)) as decimal_38_18
-           |      FROM `in`
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  query: >
+           |    SELECT
+           |      event_time,
+           |      CAST(`value` as DECIMAL(13,4)) as decimal_13_4,
+           |      CAST(`value` as DECIMAL(38,18)) as decimal_38_18
+           |    FROM `in`
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  in: {}
-           |  out: {}
+           |vocab: {}
            |""".stripMargin
       )
 
@@ -101,7 +96,7 @@ class EngineFormatsTest
       )
 
       val actual = ParquetHelpers
-        .read[WriteResult](Paths.get(request.outDataPath))
+        .read[WriteResult](request.outDataPath)
         .sortBy(i => i.event_time.getTime)
 
       actual shouldEqual List(
@@ -143,20 +138,15 @@ class EngineFormatsTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
-           |source:
-           |  inputs:
-           |    - in
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    query: >
-           |      SELECT event_time, cast(`decimal` as string) as `decimal` FROM `in`
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  query: >
+           |    SELECT event_time, cast(`decimal` as string) as `decimal` FROM `in`
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  in: {}
-           |  out: {}
+           |vocab: {}
            |""".stripMargin
       )
 
@@ -180,7 +170,7 @@ class EngineFormatsTest
       )
 
       val actual = ParquetHelpers
-        .read[ReadOutput](Paths.get(request.outDataPath))
+        .read[ReadOutput](request.outDataPath)
         .sortBy(i => i.event_time.getTime)
 
       actual shouldEqual List(

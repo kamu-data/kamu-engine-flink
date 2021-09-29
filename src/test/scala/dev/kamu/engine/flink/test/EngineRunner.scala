@@ -8,7 +8,7 @@ import better.files.File
 import scala.concurrent.duration._
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.Manifest
-import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, ExecuteQueryResult}
+import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryResponse}
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.utils.Temp
@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory
 
 class EngineRunner(
   dockerClient: DockerClient,
-  image: String = "kamudata/engine-flink:0.8.0-flink_1.13.1-scala_2.12-java8",
+  image: String = "kamudata/engine-flink:0.10.0-flink_1.13.1-scala_2.12-java8",
   networkName: String = "kamu-flink"
 ) {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -33,7 +33,7 @@ class EngineRunner(
     request: ExecuteQueryRequest,
     workspaceDir: Path,
     systemTime: Timestamp
-  ): ExecuteQueryResult = {
+  ): ExecuteQueryResponse.Success = {
     val engineJar = Paths.get("target", "scala-2.12", "engine.flink.jar")
 
     if (!File(engineJar).exists)
@@ -45,7 +45,7 @@ class EngineRunner(
     val volumeMap = Map(workspaceDir -> workspaceDir)
 
     Temp.withRandomTempDir("kamu-inout-") { inOutDir =>
-      yaml.save(Manifest(request), inOutDir.resolve("request.yaml"))
+      yaml.save(request, inOutDir.resolve("request.yaml"))
 
       dockerClient.withNetwork(networkName) {
 
@@ -56,6 +56,7 @@ class EngineRunner(
             image = image,
             containerName = Some("jobmanager"),
             hostname = Some("jobmanager"),
+            entryPoint = Some("/docker-entrypoint.sh"),
             args = List("jobmanager"),
             environmentVars = Map(
               "JOB_MANAGER_RPC_ADDRESS" -> "jobmanager",
@@ -77,6 +78,7 @@ class EngineRunner(
             image = image,
             containerName = Some("taskmanager"),
             hostname = Some("taskmanager"),
+            entryPoint = Some("/docker-entrypoint.sh"),
             args = List("taskmanager"),
             environmentVars = Map("JOB_MANAGER_RPC_ADDRESS" -> "jobmanager"),
             exposePorts = List(6121, 6122),
@@ -87,9 +89,9 @@ class EngineRunner(
 
         jobManager.waitForHostPort(8081, 15 seconds)
 
-        val newCheckpointDir = Paths.get(request.newCheckpointDir)
+        val newCheckpointDir = request.newCheckpointDir
         val prevSavepoint =
-          request.prevCheckpointDir.map(p => getPrevSavepoint(Paths.get(p)))
+          request.prevCheckpointDir.map(p => getPrevSavepoint(p))
         val savepointArgs = prevSavepoint.map(p => s"-s $p").getOrElse("")
 
         try {
@@ -137,8 +139,8 @@ class EngineRunner(
       }
 
       yaml
-        .load[Manifest[ExecuteQueryResult]](inOutDir.resolve("result.yaml"))
-        .content
+        .load[ExecuteQueryResponse](inOutDir.resolve("response.yaml"))
+        .asInstanceOf[ExecuteQueryResponse.Success]
     }
   }
 

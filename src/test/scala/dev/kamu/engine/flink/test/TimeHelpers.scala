@@ -5,7 +5,7 @@ import java.sql.Timestamp
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
 import dev.kamu.core.manifests.DatasetLayout
-import dev.kamu.core.manifests.infra.{ExecuteQueryRequest, Watermark}
+import dev.kamu.core.manifests.{ExecuteQueryRequest, Watermark}
 import dev.kamu.core.utils.fs._
 
 trait TimeHelpers {
@@ -26,13 +26,13 @@ trait TimeHelpers {
       )
 
     request.copy(
-      inputSlices = request.inputSlices.map {
-        case (id, slice) =>
-          (
-            id,
-            slice.copy(explicitWatermarks = wmsVec.getOrElse(id, Vector.empty))
+      inputs = request.inputs.map(
+        i =>
+          i.copy(
+            explicitWatermarks =
+              wmsVec.getOrElse(i.datasetID.toString, Vector.empty)
           )
-      }
+      )
     )
   }
 

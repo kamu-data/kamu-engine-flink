@@ -4,7 +4,7 @@ import java.nio.file.Paths
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+import dev.kamu.core.manifests.ExecuteQueryRequest
 import dev.kamu.core.utils.{DockerClient, Temp}
 import dev.kamu.core.utils.fs._
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -29,20 +29,15 @@ class EngineHashTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: o.u.t
-           |source:
-           |  inputs:
-           |    - in
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    query: >
-           |      SELECT * FROM `in`
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  query: >
+           |    SELECT * FROM `in`
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  in: {}
-           |  o.u.t: {}
+           |vocab: {}
            |""".stripMargin
       )
 
@@ -65,12 +60,12 @@ class EngineHashTest
         Timestamp.from(Instant.now)
       )
 
-      result.block.outputSlice.get.numRecords shouldEqual 4
-      result.block.outputSlice.get.hash shouldEqual "797199ca7c2073d724fbb27e72d0c14f6df032b44846c4aceec58c27dc3aed0c"
-      result.block.outputWatermark.get shouldEqual ts(4).toInstant
+      result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+      result.metadataBlock.outputSlice.get.hash shouldEqual "797199ca7c2073d724fbb27e72d0c14f6df032b44846c4aceec58c27dc3aed0c"
+      result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
 
       val actual = ParquetHelpers
-        .read[TickerNoSystemTime](Paths.get(request.outDataPath))
+        .read[TickerNoSystemTime](request.outDataPath)
         .sortBy(i => (i.event_time.getTime, i.symbol))
 
       actual shouldEqual List(

@@ -6,7 +6,7 @@ import java.sql.Timestamp
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.infra.ExecuteQueryRequest
+import dev.kamu.core.manifests.ExecuteQueryRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -46,35 +46,28 @@ class EngineJoinStreamToTemporalTableTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: stocks.current-value
-           |source:
-           |  inputs:
-           |    - tickers
-           |    - stocks.owned
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    temporalTables:
-           |    - id: stocks.owned
-           |      primaryKey:
-           |      - symbol
-           |    query: >
-           |      SELECT
-           |        t.event_time,
-           |        t.symbol,
-           |        owned.volume as volume,
-           |        t.price as current_price,
-           |        owned.volume * t.price as current_value
-           |      FROM
-           |        tickers as t,
-           |        LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
-           |      WHERE t.symbol = owned.symbol
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  temporalTables:
+           |  - id: stocks.owned
+           |    primaryKey:
+           |    - symbol
+           |  query: >
+           |    SELECT
+           |      t.event_time,
+           |      t.symbol,
+           |      owned.volume as volume,
+           |      t.price as current_price,
+           |      owned.volume * t.price as current_value
+           |    FROM
+           |      tickers as t,
+           |      LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
+           |    WHERE t.symbol = owned.symbol
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  tickers: {}
-           |  stocks.owned: {}
-           |  stocks.current-value: {}
+           |vocab: {}
            |""".stripMargin
       )
 
@@ -116,11 +109,11 @@ class EngineJoinStreamToTemporalTableTest
           ts(10)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 3
-        result.block.outputWatermark.get shouldEqual ts(3).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 3
+        result.metadataBlock.outputWatermark.get shouldEqual ts(3).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](Paths.get(request.outDataPath))
+          .read[StocksOwnedWithValue](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -168,11 +161,11 @@ class EngineJoinStreamToTemporalTableTest
           ts(20)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 2
-        result.block.outputWatermark.get shouldEqual ts(4).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](Paths.get(request.outDataPath))
+          .read[StocksOwnedWithValue](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -194,35 +187,28 @@ class EngineJoinStreamToTemporalTableTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: stocks.current-value
-           |source:
-           |  inputs:
-           |    - tickers
-           |    - stocks.owned
-           |  transform:
-           |    kind: sql
-           |    engine: flink
-           |    temporalTables:
-           |    - id: stocks.owned
-           |      primaryKey:
-           |      - symbol
-           |    query: >
-           |      SELECT
-           |        t.event_time,
-           |        t.symbol,
-           |        owned.volume as volume,
-           |        t.price as current_price,
-           |        owned.volume * t.price as current_value
-           |      FROM
-           |        tickers as t,
-           |        LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
-           |      WHERE t.symbol = owned.symbol
-           |inputSlices: {}
+           |transform:
+           |  kind: sql
+           |  engine: flink
+           |  temporalTables:
+           |  - id: stocks.owned
+           |    primaryKey:
+           |    - symbol
+           |  query: >
+           |    SELECT
+           |      t.event_time,
+           |      t.symbol,
+           |      owned.volume as volume,
+           |      t.price as current_price,
+           |      owned.volume * t.price as current_value
+           |    FROM
+           |      tickers as t,
+           |      LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
+           |    WHERE t.symbol = owned.symbol
+           |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
-           |datasetVocabs:
-           |  tickers: {}
-           |  stocks.owned: {}
-           |  stocks.current-value: {}
+           |vocab: {}
            |""".stripMargin
       )
 
@@ -260,11 +246,11 @@ class EngineJoinStreamToTemporalTableTest
           ts(10)
         )
 
-        result.block.outputSlice.get.numRecords shouldEqual 3
-        result.block.outputWatermark.get shouldEqual ts(5).toInstant
+        result.metadataBlock.outputSlice.get.numRecords shouldEqual 3
+        result.metadataBlock.outputWatermark.get shouldEqual ts(5).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](Paths.get(request.outDataPath))
+          .read[StocksOwnedWithValue](request.outDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
