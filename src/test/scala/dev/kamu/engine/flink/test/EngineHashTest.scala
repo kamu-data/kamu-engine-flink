@@ -4,7 +4,7 @@ import java.nio.file.Paths
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.ExecuteQueryRequest
+import dev.kamu.core.manifests.{ExecuteQueryRequest, OffsetInterval}
 import dev.kamu.core.utils.{DockerClient, Temp}
 import dev.kamu.core.utils.fs._
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -29,11 +29,13 @@ class EngineHashTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: o.u.t
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
            |  query: >
-           |    SELECT * FROM `in`
+           |    SELECT event_time, symbol, price FROM `in`
            |inputs: []
            |newCheckpointDir: ""
            |outDataPath: ""
@@ -47,33 +49,25 @@ class EngineHashTest
         "in",
         inputLayout.dataDir,
         Seq(
-          Ticker(ts(5), ts(1), "A", 10),
-          Ticker(ts(5), ts(2), "B", 20),
-          Ticker(ts(5), ts(3), "A", 11),
-          Ticker(ts(5), ts(4), "B", 21)
+          Ticker(0, ts(5), ts(1), "A", 10),
+          Ticker(1, ts(5), ts(2), "B", 20),
+          Ticker(2, ts(5), ts(3), "A", 11),
+          Ticker(3, ts(5), ts(4), "B", 21)
         )
       )
 
       val result = engineRunner.run(
-        withWatermarks(request, Map("in" -> ts(4))),
-        tempDir,
-        Timestamp.from(Instant.now)
+        withWatermarks(request, Map("in" -> ts(4)))
+          .copy(systemTime = ts(10).toInstant),
+        tempDir
       )
 
-      result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
-      result.metadataBlock.outputSlice.get.hash shouldEqual "797199ca7c2073d724fbb27e72d0c14f6df032b44846c4aceec58c27dc3aed0c"
+      result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        start = 0,
+        end = 3
+      )
+      result.metadataBlock.outputSlice.get.dataLogicalHash shouldEqual "0a148fa615c7c3c23022d333e02244a1fa7cde8e8255933a3ca8092284fc2cad"
       result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
-
-      val actual = ParquetHelpers
-        .read[TickerNoSystemTime](request.outDataPath)
-        .sortBy(i => (i.event_time.getTime, i.symbol))
-
-      actual shouldEqual List(
-        TickerNoSystemTime(ts(1), "A", 10),
-        TickerNoSystemTime(ts(2), "B", 20),
-        TickerNoSystemTime(ts(3), "A", 11),
-        TickerNoSystemTime(ts(4), "B", 21)
-      )
     }
   }
 }

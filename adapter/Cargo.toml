@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Kamu
-opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "odf_engine_adapter" }
+opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "master" }
 # opendatafabric = { path = "../../kamu-cli/opendatafabric" }
 
 # RPC
@@ -22,6 +22,6 @@ serde_yaml = "*"
 
 # Tracing / logging / telemetry
 tracing = "*"  
-tracing-subscriber = "*"
+tracing-subscriber = { version = "*", features = ["env-filter"] }
 tracing-log = "*"
 tracing-bunyan-formatter = "*"

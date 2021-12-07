@@ -5,9 +5,12 @@ import com.sksamuel.avro4s.{Decoder, Encoder, SchemaFor}
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.{ExecuteQueryRequest, QueryInput}
 import dev.kamu.core.utils.fs._
-import spire.math.Interval
 
 import scala.util.Random
+
+trait HasOffset {
+  def getOffset: Long
+}
 
 trait EngineHelpers {
 
@@ -28,7 +31,7 @@ trait EngineHelpers {
     )
   }
 
-  def withInputData[T: Encoder: Decoder](
+  def withInputData[T <: HasOffset: Encoder: Decoder](
     request: ExecuteQueryRequest,
     datasetID: String,
     dataDir: Path,
@@ -36,6 +39,10 @@ trait EngineHelpers {
   )(
     implicit schemaFor: SchemaFor[T]
   ): ExecuteQueryRequest = {
+    val dataInterval = OffsetInterval(
+      start = data.map(_.getOffset).min,
+      end = data.map(_.getOffset).max
+    )
     val inputPath = dataDir.resolve(randomDataFileName())
 
     ParquetHelpers.write(
@@ -49,7 +56,7 @@ trait EngineHelpers {
           inputs = request.inputs ++ Vector(
             QueryInput(
               datasetID = DatasetID(datasetID),
-              interval = Interval.all,
+              dataInterval = Some(dataInterval),
               schemaFile = inputPath,
               dataPaths = Vector(inputPath),
               explicitWatermarks = Vector.empty,
@@ -60,7 +67,11 @@ trait EngineHelpers {
       case i =>
         val input = request.inputs(i)
         val newInput =
-          input.copy(dataPaths = input.dataPaths ++ Vector(inputPath))
+          input.copy(
+            dataPaths = input.dataPaths ++ Vector(inputPath),
+            dataInterval =
+              Some(input.dataInterval.get.copy(end = dataInterval.end))
+          )
         request.copy(inputs = request.inputs.updated(i, newInput))
     }
   }

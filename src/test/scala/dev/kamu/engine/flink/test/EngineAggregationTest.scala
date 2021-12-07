@@ -1,6 +1,6 @@
 package dev.kamu.engine.flink.test
 
-import java.nio.file.{Files, Paths}
+import java.nio.file.Files
 import java.sql.Timestamp
 
 import pureconfig.generic.auto._
@@ -12,20 +12,16 @@ import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
-import spire.math.Interval
 
 case class Ticker(
+  offset: Long,
   system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   price: Int
-)
-
-case class TickerNoSystemTime(
-  event_time: Timestamp,
-  symbol: String,
-  price: Int
-)
+) extends HasOffset {
+  override def getOffset: Long = offset
+}
 
 case class TickerSummary(
   system_time: Timestamp,
@@ -52,6 +48,8 @@ class EngineAggregationTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |vocab: {}
            |transform:
            |  kind: sql
@@ -77,33 +75,31 @@ class EngineAggregationTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(5), ts(1, 1), "A", 10),
-            Ticker(ts(5), ts(1, 1), "B", 20),
-            Ticker(ts(5), ts(1, 2), "A", 11),
-            Ticker(ts(5), ts(1, 2), "B", 21),
-            Ticker(ts(5), ts(2, 1), "A", 12),
-            Ticker(ts(5), ts(2, 1), "B", 22),
-            Ticker(ts(5), ts(2, 2), "A", 13),
-            Ticker(ts(5), ts(2, 2), "B", 23),
-            Ticker(ts(5), ts(3, 1), "A", 14),
-            Ticker(ts(5), ts(3, 1), "B", 24),
-            Ticker(ts(5), ts(3, 2), "A", 15),
-            Ticker(ts(5), ts(3, 2), "B", 25)
+            Ticker(0, ts(5), ts(1, 1), "A", 10),
+            Ticker(1, ts(5), ts(1, 1), "B", 20),
+            Ticker(2, ts(5), ts(1, 2), "A", 11),
+            Ticker(3, ts(5), ts(1, 2), "B", 21),
+            Ticker(4, ts(5), ts(2, 1), "A", 12),
+            Ticker(5, ts(5), ts(2, 1), "B", 22),
+            Ticker(6, ts(5), ts(2, 2), "A", 13),
+            Ticker(7, ts(5), ts(2, 2), "B", 23),
+            Ticker(8, ts(5), ts(3, 1), "A", 14),
+            Ticker(9, ts(5), ts(3, 1), "B", 24),
+            Ticker(10, ts(5), ts(3, 2), "A", 15),
+            Ticker(11, ts(5), ts(3, 2), "B", 25)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(3, 2))),
-          tempDir,
-          ts(10)
+          withWatermarks(request, Map("in" -> ts(3, 2)))
+            .copy(systemTime = ts(10).toInstant, offset = 0),
+          tempDir
         )
 
-        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 12
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
-        result.metadataBlock.outputSlice.get.interval shouldEqual Interval
-          .point(
-            ts(10).toInstant
-          )
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 3
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(3, 2).toInstant
 
         val actual = ParquetHelpers
@@ -131,25 +127,27 @@ class EngineAggregationTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(15), ts(4, 1), "A", 16),
-            Ticker(ts(15), ts(4, 1), "B", 26),
-            Ticker(ts(15), ts(4, 2), "A", 17),
-            Ticker(ts(15), ts(4, 2), "B", 27),
-            Ticker(ts(15), ts(5, 1), "A", 18),
-            Ticker(ts(15), ts(5, 1), "B", 28),
-            Ticker(ts(15), ts(5, 2), "A", 19),
-            Ticker(ts(15), ts(5, 2), "B", 29)
+            Ticker(12, ts(15), ts(4, 1), "A", 16),
+            Ticker(13, ts(15), ts(4, 1), "B", 26),
+            Ticker(14, ts(15), ts(4, 2), "A", 17),
+            Ticker(15, ts(15), ts(4, 2), "B", 27),
+            Ticker(16, ts(15), ts(5, 1), "A", 18),
+            Ticker(17, ts(15), ts(5, 1), "B", 28),
+            Ticker(18, ts(15), ts(5, 2), "A", 19),
+            Ticker(19, ts(15), ts(5, 2), "B", 29)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(5, 2))),
-          tempDir,
-          ts(20)
+          withWatermarks(request, Map("in" -> ts(5, 2)))
+            .copy(systemTime = ts(20).toInstant, offset = 4),
+          tempDir
         )
 
-        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 8
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 4,
+          end = 7
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(5, 2).toInstant
 
         val actual = ParquetHelpers
@@ -177,19 +175,21 @@ class EngineAggregationTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(20), ts(6, 1), "A", 20),
-            Ticker(ts(20), ts(6, 1), "B", 30)
+            Ticker(20, ts(20), ts(6, 1), "A", 20),
+            Ticker(21, ts(20), ts(6, 1), "B", 30)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(6, 1))),
-          tempDir,
-          ts(30)
+          withWatermarks(request, Map("in" -> ts(6, 1)))
+            .copy(systemTime = ts(30).toInstant, offset = 12),
+          tempDir
         )
 
-        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 2
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 12,
+          end = 13
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(6, 1).toInstant
 
         val actual = ParquetHelpers
@@ -221,7 +221,7 @@ class EngineAggregationTest
           inputs = Vector(
             QueryInput(
               datasetID = DatasetID("in"),
-              interval = Interval.empty,
+              dataInterval = None,
               schemaFile = lastInputFile,
               dataPaths = Vector.empty,
               vocab = DatasetVocabulary(None, None),
@@ -231,13 +231,15 @@ class EngineAggregationTest
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(7, 1))),
-          tempDir,
-          ts(31)
+          withWatermarks(request, Map("in" -> ts(7, 1)))
+            .copy(systemTime = ts(31).toInstant, offset = 14),
+          tempDir
         )
 
-        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 0
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 14,
+          end = 15
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(7, 1).toInstant
 
         val actual = ParquetHelpers
@@ -263,7 +265,7 @@ class EngineAggregationTest
           inputs = Vector(
             QueryInput(
               datasetID = DatasetID("in"),
-              interval = Interval.empty,
+              dataInterval = None,
               schemaFile = lastInputFile,
               dataPaths = Vector.empty,
               vocab = DatasetVocabulary(None, None),
@@ -273,12 +275,11 @@ class EngineAggregationTest
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(8))),
-          tempDir,
-          ts(31)
+          withWatermarks(request, Map("in" -> ts(8)))
+            .copy(systemTime = ts(31).toInstant, offset = 16),
+          tempDir
         )
 
-        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 0
         result.metadataBlock.outputSlice shouldBe None
         result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
 
@@ -297,6 +298,8 @@ class EngineAggregationTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
           |datasetID: out
+          |systemTime: "2020-01-01T00:00:00Z"
+          |offset: 0
           |transform:
           |  kind: sql
           |  engine: flink
@@ -322,30 +325,32 @@ class EngineAggregationTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(5), ts(1, 1), "A", 10),
-            Ticker(ts(5), ts(1, 1), "B", 20),
-            Ticker(ts(5), ts(1, 2), "A", 10),
-            Ticker(ts(5), ts(1, 2), "B", 21),
-            Ticker(ts(5), ts(2, 1), "A", 12),
-            Ticker(ts(5), ts(2, 1), "B", 22),
-            Ticker(ts(5), ts(2, 2), "A", 13),
-            Ticker(ts(5), ts(2, 2), "B", 23),
-            Ticker(ts(5), ts(1, 3), "A", 11), // One day late and will be considered
-            Ticker(ts(5), ts(3, 1), "A", 14),
-            Ticker(ts(5), ts(3, 1), "B", 24),
-            Ticker(ts(5), ts(3, 2), "A", 15),
-            Ticker(ts(5), ts(3, 2), "B", 25)
+            Ticker(0, ts(5), ts(1, 1), "A", 10),
+            Ticker(1, ts(5), ts(1, 1), "B", 20),
+            Ticker(2, ts(5), ts(1, 2), "A", 10),
+            Ticker(3, ts(5), ts(1, 2), "B", 21),
+            Ticker(4, ts(5), ts(2, 1), "A", 12),
+            Ticker(5, ts(5), ts(2, 1), "B", 22),
+            Ticker(6, ts(5), ts(2, 2), "A", 13),
+            Ticker(7, ts(5), ts(2, 2), "B", 23),
+            Ticker(8, ts(5), ts(1, 3), "A", 11), // One day late and will be considered
+            Ticker(9, ts(5), ts(3, 1), "A", 14),
+            Ticker(10, ts(5), ts(3, 1), "B", 24),
+            Ticker(11, ts(5), ts(3, 2), "A", 15),
+            Ticker(12, ts(5), ts(3, 2), "B", 25)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(2, 2))),
-          tempDir,
-          ts(10)
+          withWatermarks(request, Map("in" -> ts(2, 2)))
+            .copy(systemTime = ts(10).toInstant, offset = 0),
+          tempDir
         )
 
-        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 13
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 1
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(2, 2).toInstant
 
         val actual = ParquetHelpers
@@ -371,24 +376,26 @@ class EngineAggregationTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(10), ts(1, 4), "A", 12), // Two days late and will be discarded
-            Ticker(ts(10), ts(4, 1), "A", 16),
-            Ticker(ts(10), ts(4, 1), "B", 26),
-            Ticker(ts(10), ts(4, 2), "A", 17),
-            Ticker(ts(10), ts(4, 2), "B", 27),
-            Ticker(ts(10), ts(5, 1), "A", 18),
-            Ticker(ts(10), ts(5, 1), "B", 28)
+            Ticker(13, ts(10), ts(1, 4), "A", 12), // Two days late and will be discarded
+            Ticker(14, ts(10), ts(4, 1), "A", 16),
+            Ticker(15, ts(10), ts(4, 1), "B", 26),
+            Ticker(16, ts(10), ts(4, 2), "A", 17),
+            Ticker(17, ts(10), ts(4, 2), "B", 27),
+            Ticker(18, ts(10), ts(5, 1), "A", 18),
+            Ticker(19, ts(10), ts(5, 1), "B", 28)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(4, 1))),
-          tempDir,
-          ts(20)
+          withWatermarks(request, Map("in" -> ts(4, 1)))
+            .copy(systemTime = ts(20).toInstant, offset = 2),
+          tempDir
         )
 
-        result.metadataBlock.inputSlices.get.apply(0).numRecords shouldEqual 7
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 2,
+          end = 5
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(4, 1).toInstant
 
         val actual = ParquetHelpers

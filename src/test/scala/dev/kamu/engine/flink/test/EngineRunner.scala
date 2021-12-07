@@ -1,13 +1,11 @@
 package dev.kamu.engine.flink.test
 
 import java.nio.file.{Path, Paths}
-import java.sql.Timestamp
 
 import better.files.File
 
 import scala.concurrent.duration._
 import pureconfig.generic.auto._
-import dev.kamu.core.manifests.Manifest
 import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryResponse}
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
@@ -24,15 +22,14 @@ import org.slf4j.LoggerFactory
 
 class EngineRunner(
   dockerClient: DockerClient,
-  image: String = "kamudata/engine-flink:0.10.0-flink_1.13.1-scala_2.12-java8",
+  image: String = "kamudata/engine-flink:0.11.0-flink_1.13.1-scala_2.12-java8",
   networkName: String = "kamu-flink"
 ) {
   private val logger = LoggerFactory.getLogger(getClass)
 
   def run(
     request: ExecuteQueryRequest,
-    workspaceDir: Path,
-    systemTime: Timestamp
+    workspaceDir: Path
   ): ExecuteQueryResponse.Success = {
     val engineJar = Paths.get("target", "scala-2.12", "engine.flink.jar")
 
@@ -59,8 +56,7 @@ class EngineRunner(
             entryPoint = Some("/docker-entrypoint.sh"),
             args = List("jobmanager"),
             environmentVars = Map(
-              "JOB_MANAGER_RPC_ADDRESS" -> "jobmanager",
-              "KAMU_SYSTEM_TIME" -> systemTime.toInstant.toString
+              "JOB_MANAGER_RPC_ADDRESS" -> "jobmanager"
             ),
             exposePorts = List(6123, 8081),
             network = Some(networkName),

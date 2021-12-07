@@ -2,22 +2,24 @@ package dev.kamu.engine.flink.test
 
 import java.nio.file.Paths
 import java.sql.Timestamp
-
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.ExecuteQueryRequest
+import dev.kamu.core.manifests.{ExecuteQueryRequest, OffsetInterval}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class StocksOwned(
+  offset: Long,
   system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   volume: Int
-)
+) extends HasOffset {
+  override def getOffset: Long = offset
+}
 
 case class StocksOwnedWithValue(
   system_time: Timestamp,
@@ -46,6 +48,8 @@ class EngineJoinStreamToTemporalTableTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: stocks.current-value
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -79,14 +83,14 @@ class EngineJoinStreamToTemporalTableTest
           "tickers",
           tickersLayout.dataDir,
           Seq(
-            Ticker(ts(5), ts(1), "A", 10),
-            Ticker(ts(5), ts(1), "B", 20),
-            Ticker(ts(5), ts(2), "A", 10),
-            Ticker(ts(5), ts(2), "B", 20),
-            Ticker(ts(5), ts(3), "A", 12),
-            Ticker(ts(5), ts(3), "B", 22),
-            Ticker(ts(5), ts(4), "A", 14),
-            Ticker(ts(5), ts(4), "B", 24)
+            Ticker(0, ts(5), ts(1), "A", 10),
+            Ticker(1, ts(5), ts(1), "B", 20),
+            Ticker(2, ts(5), ts(2), "A", 10),
+            Ticker(3, ts(5), ts(2), "B", 20),
+            Ticker(4, ts(5), ts(3), "A", 12),
+            Ticker(5, ts(5), ts(3), "B", 22),
+            Ticker(6, ts(5), ts(4), "A", 14),
+            Ticker(7, ts(5), ts(4), "B", 24)
           )
         )
 
@@ -95,8 +99,8 @@ class EngineJoinStreamToTemporalTableTest
           "stocks.owned",
           stocksOwnedLayout.dataDir,
           Seq(
-            StocksOwned(ts(4), ts(2), "A", 100),
-            StocksOwned(ts(4), ts(3), "B", 200)
+            StocksOwned(0, ts(4), ts(2), "A", 100),
+            StocksOwned(1, ts(4), ts(3), "B", 200)
           )
         )
 
@@ -104,12 +108,14 @@ class EngineJoinStreamToTemporalTableTest
           withWatermarks(
             request,
             Map("tickers" -> ts(4), "stocks.owned" -> ts(3))
-          ),
-          tempDir,
-          ts(10)
+          ).copy(systemTime = ts(10).toInstant),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 3
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 2
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(3).toInstant
 
         val actual = ParquetHelpers
@@ -138,8 +144,8 @@ class EngineJoinStreamToTemporalTableTest
           "tickers",
           tickersLayout.dataDir,
           Seq(
-            Ticker(ts(6), ts(5), "A", 15),
-            Ticker(ts(6), ts(5), "B", 25)
+            Ticker(8, ts(6), ts(5), "A", 15),
+            Ticker(9, ts(6), ts(5), "B", 25)
           )
         )
 
@@ -148,7 +154,7 @@ class EngineJoinStreamToTemporalTableTest
           "stocks.owned",
           stocksOwnedLayout.dataDir,
           Seq(
-            StocksOwned(ts(5), ts(4), "B", 250)
+            StocksOwned(2, ts(5), ts(4), "B", 250)
           )
         )
 
@@ -156,12 +162,14 @@ class EngineJoinStreamToTemporalTableTest
           withWatermarks(
             request,
             Map("tickers" -> ts(5), "stocks.owned" -> ts(4))
-          ),
-          tempDir,
-          ts(20)
+          ).copy(systemTime = ts(20).toInstant, offset = 3),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 3,
+          end = 4
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
@@ -187,6 +195,8 @@ class EngineJoinStreamToTemporalTableTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: stocks.current-value
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -220,11 +230,11 @@ class EngineJoinStreamToTemporalTableTest
           "tickers",
           tickersLayout.dataDir,
           Seq(
-            Ticker(ts(6), ts(1), "A", 1),
-            Ticker(ts(6), ts(2), "A", 2),
-            Ticker(ts(6), ts(3), "A", 3),
-            Ticker(ts(6), ts(4), "A", 4),
-            Ticker(ts(6), ts(5), "A", 5)
+            Ticker(0, ts(6), ts(1), "A", 1),
+            Ticker(1, ts(6), ts(2), "A", 2),
+            Ticker(2, ts(6), ts(3), "A", 3),
+            Ticker(3, ts(6), ts(4), "A", 4),
+            Ticker(4, ts(6), ts(5), "A", 5)
           )
         )
 
@@ -233,7 +243,7 @@ class EngineJoinStreamToTemporalTableTest
           "stocks.owned",
           stocksOwnedLayout.dataDir,
           Seq(
-            StocksOwned(ts(4), ts(3), "A", 100)
+            StocksOwned(0, ts(4), ts(3), "A", 100)
           )
         )
 
@@ -241,12 +251,14 @@ class EngineJoinStreamToTemporalTableTest
           withWatermarks(
             request,
             Map("tickers" -> ts(5), "stocks.owned" -> ts(5))
-          ),
-          tempDir,
-          ts(10)
+          ).copy(systemTime = ts(10).toInstant),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 3
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 2
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(5).toInstant
 
         val actual = ParquetHelpers

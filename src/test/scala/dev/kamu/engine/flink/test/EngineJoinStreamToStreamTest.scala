@@ -2,29 +2,34 @@ package dev.kamu.engine.flink.test
 
 import java.nio.file.Paths
 import java.sql.Timestamp
-
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.ExecuteQueryRequest
+import dev.kamu.core.manifests.{ExecuteQueryRequest, OffsetInterval}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Order(
+  offset: Long,
   system_time: Timestamp,
   event_time: Timestamp,
   order_id: Long,
   quantity: Long
-)
+) extends HasOffset {
+  override def getOffset: Long = offset
+}
 
 case class Shipment(
+  offset: Long,
   system_time: Timestamp,
   event_time: Timestamp,
   order_id: Long,
   num_shipped: Long
-)
+) extends HasOffset {
+  override def getOffset: Long = offset
+}
 
 case class ShippedOrder(
   system_time: Timestamp,
@@ -64,6 +69,8 @@ class EngineJoinStreamToStreamTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: shipped_orders
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -96,9 +103,9 @@ class EngineJoinStreamToStreamTest
           "orders",
           ordersLayout.dataDir,
           Seq(
-            Order(ts(6), ts(1), 1, 10),
-            Order(ts(6), ts(1), 2, 120),
-            Order(ts(6), ts(5), 3, 9)
+            Order(0, ts(6), ts(1), 1, 10),
+            Order(1, ts(6), ts(1), 2, 120),
+            Order(2, ts(6), ts(5), 3, 9)
           )
         )
 
@@ -107,19 +114,22 @@ class EngineJoinStreamToStreamTest
           "shipments",
           shipmentsLayout.dataDir,
           Seq(
-            Shipment(ts(3), ts(1), 1, 4),
-            Shipment(ts(3), ts(2), 1, 6),
-            Shipment(ts(3), ts(2), 2, 120)
+            Shipment(0, ts(3), ts(1), 1, 4),
+            Shipment(1, ts(3), ts(2), 1, 6),
+            Shipment(2, ts(3), ts(2), 2, 120)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("orders" -> ts(5), "shipments" -> ts(2))),
-          tempDir,
-          ts(10)
+          withWatermarks(request, Map("orders" -> ts(5), "shipments" -> ts(2)))
+            .copy(systemTime = ts(10).toInstant, offset = 0),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 3
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 2
+        )
 
         val actual = ParquetHelpers
           .read[ShippedOrder](request.outDataPath)
@@ -146,7 +156,7 @@ class EngineJoinStreamToStreamTest
           "orders",
           ordersLayout.dataDir,
           Seq(
-            Order(ts(11), ts(10), 4, 110)
+            Order(3, ts(11), ts(10), 4, 110)
           )
         )
 
@@ -155,8 +165,8 @@ class EngineJoinStreamToStreamTest
           "shipments",
           shipmentsLayout.dataDir,
           Seq(
-            Shipment(ts(12), ts(8), 3, 9),
-            Shipment(ts(12), ts(11), 4, 110)
+            Shipment(3, ts(12), ts(8), 3, 9),
+            Shipment(4, ts(12), ts(11), 4, 110)
           )
         )
 
@@ -164,12 +174,14 @@ class EngineJoinStreamToStreamTest
           withWatermarks(
             request,
             Map("orders" -> ts(10), "shipments" -> ts(11))
-          ),
-          tempDir,
-          ts(20)
+          ).copy(systemTime = ts(20).toInstant, offset = 3),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 3,
+          end = 4
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
@@ -195,6 +207,8 @@ class EngineJoinStreamToStreamTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: late_orders
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -246,11 +260,11 @@ class EngineJoinStreamToStreamTest
           "orders",
           ordersLayout.dataDir,
           Seq(
-            Order(ts(16), ts(1), 1, 10),
-            Order(ts(16), ts(1), 2, 120),
-            Order(ts(16), ts(5), 3, 9),
-            Order(ts(16), ts(10), 4, 110),
-            Order(ts(16), ts(15), 5, 10)
+            Order(0, ts(16), ts(1), 1, 10),
+            Order(1, ts(16), ts(1), 2, 120),
+            Order(2, ts(16), ts(5), 3, 9),
+            Order(3, ts(16), ts(10), 4, 110),
+            Order(4, ts(16), ts(15), 5, 10)
           )
         )
 
@@ -259,13 +273,13 @@ class EngineJoinStreamToStreamTest
           "shipments",
           shipmentsLayout.dataDir,
           Seq(
-            Shipment(ts(17), ts(1), 1, 4),
-            Shipment(ts(17), ts(2), 1, 6),
-            Shipment(ts(17), ts(2), 2, 120),
-            Shipment(ts(17), ts(6), 3, 5),
-            Shipment(ts(17), ts(11), 4, 50),
-            Shipment(ts(17), ts(13), 4, 60),
-            Shipment(ts(17), ts(16), 5, 10)
+            Shipment(0, ts(17), ts(1), 1, 4),
+            Shipment(1, ts(17), ts(2), 1, 6),
+            Shipment(2, ts(17), ts(2), 2, 120),
+            Shipment(3, ts(17), ts(6), 3, 5),
+            Shipment(4, ts(17), ts(11), 4, 50),
+            Shipment(5, ts(17), ts(13), 4, 60),
+            Shipment(6, ts(17), ts(16), 5, 10)
           )
         )
 
@@ -273,12 +287,14 @@ class EngineJoinStreamToStreamTest
           withWatermarks(
             request,
             Map("orders" -> ts(15), "shipments" -> ts(16))
-          ),
-          tempDir,
-          ts(20)
+          ).copy(systemTime = ts(20).toInstant, offset = 0),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 1
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(13).toInstant
 
         val actual = ParquetHelpers
@@ -313,6 +329,8 @@ class EngineJoinStreamToStreamTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: late_orders
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -364,10 +382,10 @@ class EngineJoinStreamToStreamTest
           "orders",
           ordersLayout.dataDir,
           Seq(
-            Order(ts(11), ts(1), 1, 10),
-            Order(ts(11), ts(1), 2, 120),
-            Order(ts(11), ts(5), 3, 9),
-            Order(ts(11), ts(10), 4, 110)
+            Order(0, ts(11), ts(1), 1, 10),
+            Order(1, ts(11), ts(1), 2, 120),
+            Order(2, ts(11), ts(5), 3, 9),
+            Order(3, ts(11), ts(10), 4, 110)
           )
         )
 
@@ -376,12 +394,12 @@ class EngineJoinStreamToStreamTest
           "shipments",
           shipmentsLayout.dataDir,
           Seq(
-            Shipment(ts(14), ts(1), 1, 4),
-            Shipment(ts(14), ts(2), 1, 6),
-            Shipment(ts(14), ts(2), 2, 120),
-            Shipment(ts(14), ts(8), 3, 9),
-            Shipment(ts(14), ts(11), 4, 50),
-            Shipment(ts(14), ts(13), 4, 60)
+            Shipment(0, ts(14), ts(1), 1, 4),
+            Shipment(1, ts(14), ts(2), 1, 6),
+            Shipment(2, ts(14), ts(2), 2, 120),
+            Shipment(3, ts(14), ts(8), 3, 9),
+            Shipment(4, ts(14), ts(11), 4, 50),
+            Shipment(5, ts(14), ts(13), 4, 60)
           )
         )
 
@@ -389,12 +407,14 @@ class EngineJoinStreamToStreamTest
           withWatermarks(
             request,
             Map("orders" -> ts(13), "shipments" -> ts(13))
-          ),
-          tempDir,
-          ts(20)
+          ).copy(systemTime = ts(20).toInstant, offset = 0),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 2
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 1
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(11).toInstant
 
         val actual = ParquetHelpers

@@ -1,11 +1,9 @@
 package dev.kamu.engine.flink.test
 
-import java.nio.file.Paths
-
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.ExecuteQueryRequest
+import dev.kamu.core.manifests.{ExecuteQueryRequest, OffsetInterval}
 import dev.kamu.core.utils.{DockerClient, Temp}
 import dev.kamu.core.utils.fs._
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -27,6 +25,8 @@ class EngineMapTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -50,31 +50,34 @@ class EngineMapTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(5), ts(1), "A", 10),
-            Ticker(ts(5), ts(2), "B", 20),
-            Ticker(ts(5), ts(3), "A", 11),
-            Ticker(ts(5), ts(4), "B", 21)
+            Ticker(0, ts(5), ts(1), "A", 10),
+            Ticker(1, ts(5), ts(2), "B", 20),
+            Ticker(2, ts(5), ts(3), "A", 11),
+            Ticker(3, ts(5), ts(4), "B", 21)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(4))),
-          tempDir,
-          ts(10)
+          withWatermarks(request, Map("in" -> ts(4)))
+            .copy(systemTime = ts(10).toInstant, offset = 0),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 0,
+          end = 3
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
           .read[Ticker](request.outDataPath)
-          .sortBy(i => (i.event_time.getTime, i.symbol))
+          .sortBy(_.offset)
 
         actual shouldEqual List(
-          Ticker(ts(10), ts(1), "A", 100),
-          Ticker(ts(10), ts(2), "B", 200),
-          Ticker(ts(10), ts(3), "A", 110),
-          Ticker(ts(10), ts(4), "B", 210)
+          Ticker(0, ts(10), ts(1), "A", 100),
+          Ticker(1, ts(10), ts(2), "B", 200),
+          Ticker(2, ts(10), ts(3), "A", 110),
+          Ticker(3, ts(10), ts(4), "B", 210)
         )
 
         request.newCheckpointDir
@@ -92,8 +95,8 @@ class EngineMapTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(15), ts(5), "A", 12),
-            Ticker(ts(15), ts(6), "B", 22)
+            Ticker(4, ts(15), ts(5), "A", 12),
+            Ticker(5, ts(15), ts(6), "B", 22)
           )
         )
 
@@ -102,29 +105,32 @@ class EngineMapTest
           "in",
           inputLayout.dataDir,
           Seq(
-            Ticker(ts(15), ts(7), "A", 13),
-            Ticker(ts(15), ts(8), "B", 23)
+            Ticker(6, ts(15), ts(7), "A", 13),
+            Ticker(7, ts(15), ts(8), "B", 23)
           )
         )
 
         val result = engineRunner.run(
-          withWatermarks(request, Map("in" -> ts(8))),
-          tempDir,
-          ts(20)
+          withWatermarks(request, Map("in" -> ts(8)))
+            .copy(systemTime = ts(20).toInstant, offset = 4),
+          tempDir
         )
 
-        result.metadataBlock.outputSlice.get.numRecords shouldEqual 4
+        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+          start = 4,
+          end = 7
+        )
         result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
           .read[Ticker](request.outDataPath)
-          .sortBy(i => (i.event_time.getTime, i.symbol))
+          .sortBy(_.offset)
 
         actual shouldEqual List(
-          Ticker(ts(20), ts(5), "A", 120),
-          Ticker(ts(20), ts(6), "B", 220),
-          Ticker(ts(20), ts(7), "A", 130),
-          Ticker(ts(20), ts(8), "B", 230)
+          Ticker(4, ts(20), ts(5), "A", 120),
+          Ticker(5, ts(20), ts(6), "B", 220),
+          Ticker(6, ts(20), ts(7), "A", 130),
+          Ticker(7, ts(20), ts(8), "B", 230)
         )
       }
     }

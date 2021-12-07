@@ -54,7 +54,7 @@ import scala.sys.process.Process
 
 case class InputSlice(
   dataStream: DataStream[Row],
-  interval: Interval[Instant],
+  interval: Option[OffsetInterval],
   markerPath: Path
 )
 
@@ -65,7 +65,6 @@ case class SliceStats(
 )
 
 class Engine(
-  systemClock: Clock,
   env: StreamExecutionEnvironment,
   tEnv: StreamTableEnvironment
 ) {
@@ -89,31 +88,28 @@ class Engine(
       .map(i => (i.datasetID, i.vocab.withDefaults()))
       .toMap + (request.datasetID -> request.vocab.withDefaults())
 
-    val resultRawTable = executeQuery(
+    executeQuery(
       request.datasetID,
       inputSlices,
       datasetVocabs,
       transform
     )
 
-    // Attach stats (before system_time column is added)
-    resultRawTable
-      .toAppendStream[Row]
-      .withStats(
-        request.datasetID.toString,
-        request.newCheckpointDir.resolve(s"${request.datasetID}.stats")
-      )
-
     // Add system_time column
     val resultTable = tEnv
       .sqlQuery(
-        s"SELECT CAST('${systemClock.timestamp()}' as TIMESTAMP) as `system_time`, * FROM `${request.datasetID}`"
+        s"SELECT cast(0 as BIGINT) as `offset`, CAST('${Timestamp.from(request.systemTime)}' as TIMESTAMP) as `system_time`, * FROM `${request.datasetID}`"
       )
 
     logger.info(s"Result schema:\n${resultTable.getSchema}")
 
     val resultStream = resultTable
       .toAppendStream[Row]
+      .assignOffsets(request.offset)
+      .withStats(
+        request.datasetID.toString,
+        request.newCheckpointDir.resolve(s"${request.datasetID}.stats")
+      )
     //.withDebugLogging(request.datasetID.toString)
 
     // Convert to Avro so we can then save in Parquet :(
@@ -139,38 +135,33 @@ class Engine(
       request.newCheckpointDir
     )
 
-    val stats =
-      gatherStats(
-        request.datasetID :: inputSlices.keys.toList,
-        request.newCheckpointDir
-      )
+    val stats = gatherStats(
+      request.datasetID :: inputSlices.keys.toList,
+      request.newCheckpointDir
+    )
+
+    val outputStats = stats(request.datasetID)
 
     val block = MetadataBlock(
       blockHash =
         "0000000000000000000000000000000000000000000000000000000000000000",
       prevBlockHash = None,
-      systemTime = systemClock.instant(),
+      systemTime = request.systemTime,
       outputSlice =
-        if (stats(request.datasetID).numRecords > 0)
+        if (outputStats.numRecords > 0)
           Some(
-            DataSlice(
-              hash = stats(request.datasetID).hash,
-              interval = Interval.point(systemClock.instant()),
-              numRecords = stats(request.datasetID).numRecords
+            OutputSlice(
+              dataLogicalHash = outputStats.hash,
+              dataInterval = OffsetInterval(
+                request.offset,
+                request.offset + outputStats.numRecords - 1
+              )
             )
           )
         else None,
-      outputWatermark = stats(request.datasetID).lastWatermark,
-      inputSlices = Some(
-        request.inputs.map(
-          i =>
-            DataSlice(
-              hash = stats(i.datasetID).hash,
-              interval = inputSlices(i.datasetID).interval,
-              numRecords = stats(i.datasetID).numRecords
-            )
-        )
-      )
+      outputWatermark = outputStats.lastWatermark,
+      // Input slices will be filled out by the coordinator
+      inputSlices = None
     )
 
     ExecuteQueryResponse.Success(block)
@@ -248,6 +239,15 @@ class Engine(
     val resultVocab = datasetVocabs(datasetID).withDefaults()
 
     if (result.getSchema
+          .getTableColumn(resultVocab.offsetColumn.get)
+          .isPresent)
+      throw new Exception(
+        s"Transformed data contains a column that conflicts with the system column name, " +
+          s"you should either rename the data column or configure the dataset vocabulary " +
+          s"to use a different name: ${resultVocab.offsetColumn.get}"
+      )
+
+    if (result.getSchema
           .getTableColumn(resultVocab.systemTimeColumn.get)
           .isPresent)
       throw new Exception(
@@ -258,7 +258,7 @@ class Engine(
 
     if (!result.getSchema
           .getTableColumn(resultVocab.eventTimeColumn.get)
-          .isPresent())
+          .isPresent)
       throw new Exception(
         s"Event time column ${resultVocab.eventTimeColumn.get} was not found amongst: " +
           result.getSchema.getTableColumns.asScala.map(_.getName).mkString(", ")
@@ -356,7 +356,7 @@ class Engine(
           prevStats.flatMap(_.lastWatermark),
           input.explicitWatermarks
         ),
-        input.interval,
+        input.dataInterval,
         vocab
       )
 
@@ -393,46 +393,27 @@ class Engine(
 
     InputSlice(
       dataStream = streamWithStats,
-      interval = input.interval,
+      interval = input.dataInterval,
       markerPath = markerPath
     )
   }
 
   private def sliceData(
     stream: DataStream[Row],
-    interval: Interval[Instant],
+    interval: Option[OffsetInterval],
     vocab: DatasetVocabulary
   ): DataStream[Row] = {
     val schema = stream.dataType.asInstanceOf[RowTypeInfo]
-    val systemTimeColumn = schema.getFieldIndex(vocab.systemTimeColumn.get)
+    val offsetColumn = schema.getFieldIndex(vocab.offsetColumn.get)
 
-    val (min, max) = interval match {
-      case Empty() => (Instant.MAX, Instant.MIN)
-      case All()   => (Instant.MIN, Instant.MAX)
-      case _ =>
-        (
-          interval.lowerBound match {
-            case Unbound() => Instant.MIN
-            case Open(x)   => x
-            case Closed(x) => x.minusMillis(1)
-            case _         => throw new RuntimeException("Unexpected")
-          },
-          interval.upperBound match {
-            case Unbound() => Instant.MAX
-            case Open(x)   => x
-            case Closed(x) => x.plusMillis(1)
-            case _         => throw new RuntimeException("Unexpected")
-          }
-        )
+    interval match {
+      case None => stream.filter(_ => false)
+      case Some(iv) =>
+        stream.filter(row => {
+          val offset = row.getField(offsetColumn).asInstanceOf[Long]
+          offset >= iv.start && offset <= iv.end
+        })
     }
-
-    stream.filter(row => {
-      val systemTime = row
-        .getField(systemTimeColumn)
-        .asInstanceOf[Timestamp]
-        .toInstant
-      systemTime.compareTo(min) > 0 && systemTime.compareTo(max) < 0
-    })
   }
 
   private def typedMap[T](m: Map[String, T]): Map[DatasetID, T] = {
@@ -571,7 +552,13 @@ class Engine(
     )
   }
 
-  implicit class StreamHelpers[T](s: DataStream[T]) {
+  implicit class StreamHelpers(s: DataStream[Row]) {
+    def assignOffsets(startOffset: Long): DataStream[Row] = {
+      s.transform("offset", new OffsetOperator(startOffset))(s.dataType)
+    }
+  }
+
+  implicit class StreamHelpers2[T](s: DataStream[T]) {
 
     def withStats(id: String, path: Path): DataStream[T] = {
       s.transform(

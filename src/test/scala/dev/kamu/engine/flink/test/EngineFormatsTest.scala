@@ -2,7 +2,6 @@ package dev.kamu.engine.flink.test
 
 import com.sksamuel.avro4s.ScalePrecisionRoundingMode
 
-import java.nio.file.Paths
 import java.sql.Timestamp
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
@@ -17,10 +16,13 @@ import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 import scala.math.BigDecimal.RoundingMode
 
 case class WriteRaw(
+  offset: Long,
   system_time: Timestamp,
   event_time: Timestamp,
   value: String
-)
+) extends HasOffset {
+  override def getOffset: Long = offset
+}
 
 case class WriteResult(
   system_time: Timestamp,
@@ -30,10 +32,13 @@ case class WriteResult(
 )
 
 case class ReadInput(
+  offset: Long,
   system_time: Timestamp,
   event_time: Timestamp,
   decimal: BigDecimal
-)
+) extends HasOffset {
+  override def getOffset: Long = offset
+}
 
 case class ReadOutput(
   system_time: Timestamp,
@@ -60,6 +65,8 @@ class EngineFormatsTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -82,17 +89,27 @@ class EngineFormatsTest
         "in",
         inputLayout.dataDir,
         Seq(
-          WriteRaw(ts(1), ts(1, 1), "123456789.0123"),
-          WriteRaw(ts(1), ts(1, 2), "-123456789.0123"),
-          WriteRaw(ts(1), ts(1, 3), "12345678901234567890.123456789012345678"),
-          WriteRaw(ts(1), ts(1, 4), "-12345678901234567890.123456789012345678")
+          WriteRaw(0, ts(1), ts(1, 1), "123456789.0123"),
+          WriteRaw(1, ts(1), ts(1, 2), "-123456789.0123"),
+          WriteRaw(
+            2,
+            ts(1),
+            ts(1, 3),
+            "12345678901234567890.123456789012345678"
+          ),
+          WriteRaw(
+            3,
+            ts(1),
+            ts(1, 4),
+            "-12345678901234567890.123456789012345678"
+          )
         )
       )
 
       engineRunner.run(
-        withWatermarks(request, Map("in" -> ts(3, 2))),
-        tempDir,
-        ts(10)
+        withWatermarks(request, Map("in" -> ts(3, 2)))
+          .copy(systemTime = ts(10).toInstant),
+        tempDir
       )
 
       val actual = ParquetHelpers
@@ -138,6 +155,8 @@ class EngineFormatsTest
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
            |datasetID: out
+           |systemTime: "2020-01-01T00:00:00Z"
+           |offset: 0
            |transform:
            |  kind: sql
            |  engine: flink
@@ -159,14 +178,14 @@ class EngineFormatsTest
         "in",
         inputLayout.dataDir,
         Seq(
-          ReadInput(ts(1), ts(1, 1), BigDecimal("123456789.0123"))
+          ReadInput(0, ts(1), ts(1, 1), BigDecimal("123456789.0123"))
         )
       )
 
       engineRunner.run(
-        withWatermarks(request, Map("in" -> ts(3, 2))),
-        tempDir,
-        ts(10)
+        withWatermarks(request, Map("in" -> ts(3, 2)))
+          .copy(systemTime = ts(10).toInstant),
+        tempDir
       )
 
       val actual = ParquetHelpers
