@@ -112,11 +112,11 @@ class EngineJoinStreamToTemporalTableTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 2
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(3).toInstant
+        result.outputWatermark.get shouldEqual ts(3).toInstant
 
         val actual = ParquetHelpers
           .read[StocksOwnedWithValue](request.outDataPath)
@@ -166,11 +166,11 @@ class EngineJoinStreamToTemporalTableTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 3,
           end = 4
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
+        result.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
           .read[StocksOwnedWithValue](request.outDataPath)
@@ -255,11 +255,11 @@ class EngineJoinStreamToTemporalTableTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 2
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(5).toInstant
+        result.outputWatermark.get shouldEqual ts(5).toInstant
 
         val actual = ParquetHelpers
           .read[StocksOwnedWithValue](request.outDataPath)

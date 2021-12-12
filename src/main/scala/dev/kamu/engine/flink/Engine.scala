@@ -59,7 +59,6 @@ case class InputSlice(
 )
 
 case class SliceStats(
-  hash: String,
   lastWatermark: Option[Instant],
   numRecords: Long
 )
@@ -142,29 +141,18 @@ class Engine(
 
     val outputStats = stats(request.datasetID)
 
-    val block = MetadataBlock(
-      blockHash =
-        "0000000000000000000000000000000000000000000000000000000000000000",
-      prevBlockHash = None,
-      systemTime = request.systemTime,
-      outputSlice =
+    ExecuteQueryResponse.Success(
+      dataInterval =
         if (outputStats.numRecords > 0)
           Some(
-            OutputSlice(
-              dataLogicalHash = outputStats.hash,
-              dataInterval = OffsetInterval(
-                request.offset,
-                request.offset + outputStats.numRecords - 1
-              )
+            OffsetInterval(
+              request.offset,
+              request.offset + outputStats.numRecords - 1
             )
           )
         else None,
-      outputWatermark = outputStats.lastWatermark,
-      // Input slices will be filled out by the coordinator
-      inputSlices = None
+      outputWatermark = outputStats.lastWatermark
     )
-
-    ExecuteQueryResponse.Success(block)
   }
 
   private def executeQuery(
@@ -438,14 +426,12 @@ class Engine(
 
       val sRowCount = reader.nextLine()
       val sLastWatermark = reader.nextLine()
-      val hash = reader.nextLine()
 
       val lLastWatermark = sLastWatermark.toLong
 
       reader.close()
 
       SliceStats(
-        hash = hash,
         lastWatermark =
           if (lLastWatermark == Long.MinValue) None
           else Some(Instant.ofEpochMilli(lLastWatermark)),

@@ -126,7 +126,7 @@ class EngineJoinStreamToStreamTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 2
         )
@@ -178,11 +178,11 @@ class EngineJoinStreamToStreamTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 3,
           end = 4
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
+        result.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
           .read[ShippedOrder](request.outDataPath)
@@ -291,11 +291,11 @@ class EngineJoinStreamToStreamTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 1
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(13).toInstant
+        result.outputWatermark.get shouldEqual ts(13).toInstant
 
         val actual = ParquetHelpers
           .read[ShipmentStats](request.outDataPath)
@@ -411,11 +411,11 @@ class EngineJoinStreamToStreamTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 1
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(11).toInstant
+        result.outputWatermark.get shouldEqual ts(11).toInstant
 
         val actual = ParquetHelpers
           .read[ShipmentStats](request.outDataPath)

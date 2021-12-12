@@ -96,11 +96,11 @@ class EngineAggregationTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 3
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(3, 2).toInstant
+        result.outputWatermark.get shouldEqual ts(3, 2).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](request.outDataPath)
@@ -144,11 +144,11 @@ class EngineAggregationTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 4,
           end = 7
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(5, 2).toInstant
+        result.outputWatermark.get shouldEqual ts(5, 2).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](request.outDataPath)
@@ -186,11 +186,11 @@ class EngineAggregationTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 12,
           end = 13
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(6, 1).toInstant
+        result.outputWatermark.get shouldEqual ts(6, 1).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](request.outDataPath)
@@ -236,11 +236,11 @@ class EngineAggregationTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 14,
           end = 15
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(7, 1).toInstant
+        result.outputWatermark.get shouldEqual ts(7, 1).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](request.outDataPath)
@@ -280,8 +280,8 @@ class EngineAggregationTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice shouldBe None
-        result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
+        result.dataInterval shouldBe None
+        result.outputWatermark.get shouldEqual ts(8).toInstant
 
         assert(!Files.exists(request.outDataPath))
       }
@@ -347,11 +347,11 @@ class EngineAggregationTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 1
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(2, 2).toInstant
+        result.outputWatermark.get shouldEqual ts(2, 2).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](request.outDataPath)
@@ -392,11 +392,11 @@ class EngineAggregationTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 2,
           end = 5
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(4, 1).toInstant
+        result.outputWatermark.get shouldEqual ts(4, 1).toInstant
 
         val actual = ParquetHelpers
           .read[TickerSummary](request.outDataPath)

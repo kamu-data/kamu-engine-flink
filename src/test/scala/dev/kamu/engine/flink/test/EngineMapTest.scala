@@ -63,11 +63,11 @@ class EngineMapTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 3
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(4).toInstant
+        result.outputWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
           .read[Ticker](request.outDataPath)
@@ -116,11 +116,11 @@ class EngineMapTest
           tempDir
         )
 
-        result.metadataBlock.outputSlice.get.dataInterval shouldEqual OffsetInterval(
+        result.dataInterval.get shouldEqual OffsetInterval(
           start = 4,
           end = 7
         )
-        result.metadataBlock.outputWatermark.get shouldEqual ts(8).toInstant
+        result.outputWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
           .read[Ticker](request.outDataPath)

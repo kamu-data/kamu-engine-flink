@@ -1,7 +1,6 @@
 package dev.kamu.engine.flink
 
 import java.io.FileWriter
-import java.security.MessageDigest
 import org.apache.flink.runtime.state.StateSnapshotContext
 import org.apache.flink.streaming.api.operators.{
   AbstractStreamOperator,
@@ -16,8 +15,6 @@ class StatsOperator[T](datasetID: String, path: String)
     with OneInputStreamOperator[T, T] {
   @transient private lazy val logger = LoggerFactory.getLogger(getClass)
 
-  @transient private lazy val digest = MessageDigest.getInstance("sha-256")
-
   private var rowCount = 0
 
   private var lastWatermark = Long.MinValue
@@ -25,7 +22,6 @@ class StatsOperator[T](datasetID: String, path: String)
   override def processElement(element: StreamRecord[T]): Unit = {
     rowCount += 1
     output.collect(element)
-    digest.update(element.getValue.toString.getBytes("utf-8"))
   }
 
   override def processWatermark(mark: Watermark): Unit = {
@@ -34,12 +30,9 @@ class StatsOperator[T](datasetID: String, path: String)
   }
 
   private def flush(): Unit = {
-    val hash = digest.digest().map("%02x".format(_)).mkString
-
     val writer = new FileWriter(path, false)
     writer.write(rowCount.toString + "\n")
     writer.write(lastWatermark.toString + "\n")
-    writer.write(hash + "\n")
     writer.close()
 
     logger.info(s"Written stats for $datasetID to: $path ($rowCount rows)")
