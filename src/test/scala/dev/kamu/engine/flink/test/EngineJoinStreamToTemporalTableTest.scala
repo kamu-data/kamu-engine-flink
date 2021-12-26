@@ -47,7 +47,8 @@ class EngineJoinStreamToTemporalTableTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: stocks.current-value
+           |datasetID: "did:odf:blah"
+           |datasetName: stocks.current-value
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |transform:
@@ -194,7 +195,8 @@ class EngineJoinStreamToTemporalTableTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: stocks.current-value
+           |datasetID: "did:odf:blah"
+           |datasetName: stocks.current-value
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |transform:

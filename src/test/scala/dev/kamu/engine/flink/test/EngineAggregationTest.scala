@@ -7,7 +7,7 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, QueryInput}
+import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryInput}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -47,7 +47,8 @@ class EngineAggregationTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: out
+           |datasetID: "did:odf:blah"
+           |datasetName: out
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |vocab: {}
@@ -204,7 +205,7 @@ class EngineAggregationTest
         (
           request.newCheckpointDir,
           request.inputs
-            .find(i => i.datasetID.toString == "in")
+            .find(i => i.datasetName.toString == "in")
             .get
             .dataPaths(0)
         )
@@ -219,8 +220,9 @@ class EngineAggregationTest
         )
         request = request.copy(
           inputs = Vector(
-            QueryInput(
-              datasetID = DatasetID("in"),
+            ExecuteQueryInput(
+              datasetID = DatasetID("did:odf:abcd"),
+              datasetName = DatasetName("in"),
               dataInterval = None,
               schemaFile = lastInputFile,
               dataPaths = Vector.empty,
@@ -263,8 +265,9 @@ class EngineAggregationTest
         )
         request = request.copy(
           inputs = Vector(
-            QueryInput(
-              datasetID = DatasetID("in"),
+            ExecuteQueryInput(
+              datasetID = DatasetID("did:odf:abcd"),
+              datasetName = DatasetName("in"),
               dataInterval = None,
               schemaFile = lastInputFile,
               dataPaths = Vector.empty,
@@ -297,7 +300,8 @@ class EngineAggregationTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-          |datasetID: out
+          |datasetID: "did:odf:blah"
+          |datasetName: out
           |systemTime: "2020-01-01T00:00:00Z"
           |offset: 0
           |transform:

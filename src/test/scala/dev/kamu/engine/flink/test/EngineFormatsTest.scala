@@ -64,7 +64,8 @@ class EngineFormatsTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: out
+           |datasetID: "did:odf:blah"
+           |datasetName: out
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |transform:
@@ -154,7 +155,8 @@ class EngineFormatsTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: out
+           |datasetID: "did:odf:blah"
+           |datasetName: out
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |transform:

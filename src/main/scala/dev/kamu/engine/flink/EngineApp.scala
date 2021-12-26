@@ -42,7 +42,9 @@ object EngineApp {
     // See: https://flink.apache.org/news/2020/04/15/flink-serialization-tuning-vol-1.html#row-data-types
     env.getConfig.disableGenericTypes()
 
-    logger.info(s"Processing dataset: ${request.datasetID}")
+    logger.info(
+      s"Processing dataset: ${request.datasetName} (${request.datasetID})"
+    )
 
     val engine = new Engine(env, tEnv)
 
@@ -62,7 +64,9 @@ object EngineApp {
         throw e
     }
 
-    logger.info(s"Done processing dataset: ${request.datasetID}")
+    logger.info(
+      s"Done processing dataset: ${request.datasetName} (${request.datasetID})"
+    )
 
     logger.info("Finished")
   }

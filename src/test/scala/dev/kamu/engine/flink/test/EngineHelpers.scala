@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import java.nio.file.Path
 import com.sksamuel.avro4s.{Decoder, Encoder, SchemaFor}
 import dev.kamu.core.manifests._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, QueryInput}
+import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryInput}
 import dev.kamu.core.utils.fs._
 
 import scala.util.Random
@@ -33,7 +33,7 @@ trait EngineHelpers {
 
   def withInputData[T <: HasOffset: Encoder: Decoder](
     request: ExecuteQueryRequest,
-    datasetID: String,
+    datasetName: String,
     dataDir: Path,
     data: Seq[T]
   )(
@@ -50,12 +50,13 @@ trait EngineHelpers {
       data
     )
 
-    request.inputs.indexWhere(_.datasetID.toString == datasetID) match {
+    request.inputs.indexWhere(_.datasetName.toString == datasetName) match {
       case -1 =>
         request.copy(
           inputs = request.inputs ++ Vector(
-            QueryInput(
-              datasetID = DatasetID(datasetID),
+            ExecuteQueryInput(
+              datasetID = DatasetID("did:odf:" + datasetName),
+              datasetName = DatasetName(datasetName),
               dataInterval = Some(dataInterval),
               schemaFile = inputPath,
               dataPaths = Vector(inputPath),

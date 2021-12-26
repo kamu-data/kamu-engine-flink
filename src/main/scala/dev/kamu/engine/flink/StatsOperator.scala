@@ -10,7 +10,7 @@ import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord
 import org.slf4j.LoggerFactory
 
-class StatsOperator[T](datasetID: String, path: String)
+class StatsOperator[T](name: String, path: String)
     extends AbstractStreamOperator[T]
     with OneInputStreamOperator[T, T] {
   @transient private lazy val logger = LoggerFactory.getLogger(getClass)
@@ -35,7 +35,7 @@ class StatsOperator[T](datasetID: String, path: String)
     writer.write(lastWatermark.toString + "\n")
     writer.close()
 
-    logger.info(s"Written stats for $datasetID to: $path ($rowCount rows)")
+    logger.info(s"Written stats for $name to: $path ($rowCount rows)")
     rowCount = 0
   }
 
@@ -47,7 +47,7 @@ class StatsOperator[T](datasetID: String, path: String)
   override def close(): Unit = {
     if (rowCount > 0) {
       throw new RuntimeException(
-        s"Closing stats for $datasetID with $rowCount rows were not flushed"
+        s"Closing stats for $name with $rowCount rows were not flushed"
       )
     }
   }

@@ -68,7 +68,8 @@ class EngineJoinStreamToStreamTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: shipped_orders
+           |datasetID: "did:odf:blah"
+           |datasetName: shipped_orders
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |transform:
@@ -206,7 +207,8 @@ class EngineJoinStreamToStreamTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: late_orders
+           |datasetID: "did:odf:blah"
+           |datasetName: late_orders
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |transform:
@@ -328,7 +330,8 @@ class EngineJoinStreamToStreamTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: late_orders
+           |datasetID: "did:odf:blah"
+           |datasetName: late_orders
            |systemTime: "2020-01-01T00:00:00Z"
            |offset: 0
            |transform:

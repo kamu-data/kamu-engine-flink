@@ -30,7 +30,7 @@ trait TimeHelpers {
         i =>
           i.copy(
             explicitWatermarks =
-              wmsVec.getOrElse(i.datasetID.toString, Vector.empty)
+              wmsVec.getOrElse(i.datasetName.toString, Vector.empty)
           )
       )
     )

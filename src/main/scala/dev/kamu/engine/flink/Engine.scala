@@ -13,7 +13,7 @@ import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.{
   ExecuteQueryRequest,
   ExecuteQueryResponse,
-  QueryInput,
+  ExecuteQueryInput,
   Watermark
 }
 import dev.kamu.core.utils.Clock
@@ -84,11 +84,11 @@ class Engine(
       )
 
     val datasetVocabs = request.inputs
-      .map(i => (i.datasetID, i.vocab.withDefaults()))
-      .toMap + (request.datasetID -> request.vocab.withDefaults())
+      .map(i => (i.datasetName, i.vocab.withDefaults()))
+      .toMap + (request.datasetName -> request.vocab.withDefaults())
 
     executeQuery(
-      request.datasetID,
+      request.datasetName,
       inputSlices,
       datasetVocabs,
       transform
@@ -97,7 +97,7 @@ class Engine(
     // Add system_time column
     val resultTable = tEnv
       .sqlQuery(
-        s"SELECT cast(0 as BIGINT) as `offset`, CAST('${Timestamp.from(request.systemTime)}' as TIMESTAMP) as `system_time`, * FROM `${request.datasetID}`"
+        s"SELECT cast(0 as BIGINT) as `offset`, CAST('${Timestamp.from(request.systemTime)}' as TIMESTAMP) as `system_time`, * FROM `${request.datasetName}`"
       )
 
     logger.info(s"Result schema:\n${resultTable.getSchema}")
@@ -106,8 +106,8 @@ class Engine(
       .toAppendStream[Row]
       .assignOffsets(request.offset)
       .withStats(
-        request.datasetID.toString,
-        request.newCheckpointDir.resolve(s"${request.datasetID}.stats")
+        request.datasetName.toString,
+        request.newCheckpointDir.resolve(s"${request.datasetName}.stats")
       )
     //.withDebugLogging(request.datasetID.toString)
 
@@ -135,11 +135,11 @@ class Engine(
     )
 
     val stats = gatherStats(
-      request.datasetID :: inputSlices.keys.toList,
+      request.datasetName :: inputSlices.keys.toList,
       request.newCheckpointDir
     )
 
-    val outputStats = stats(request.datasetID)
+    val outputStats = stats(request.datasetName)
 
     ExecuteQueryResponse.Success(
       dataInterval =
@@ -156,9 +156,9 @@ class Engine(
   }
 
   private def executeQuery(
-    datasetID: DatasetID,
-    inputSlices: Map[DatasetID, InputSlice],
-    datasetVocabs: Map[DatasetID, DatasetVocabulary],
+    datasetName: DatasetName,
+    inputSlices: Map[DatasetName, InputSlice],
+    datasetVocabs: Map[DatasetName, DatasetVocabulary],
     transform: Transform.Sql
   ): Table = {
     val temporalTables =
@@ -216,15 +216,15 @@ class Engine(
 
     // Setup transform
     for (step <- transform.queries.get) {
-      val alias = step.alias.getOrElse(datasetID.toString)
+      val alias = step.alias.getOrElse(datasetName.toString)
       val table = tEnv.sqlQuery(step.query)
       tEnv.createTemporaryView(s"`$alias`", table)
     }
 
     // Get result
-    val result = tEnv.from(s"`$datasetID`")
+    val result = tEnv.from(s"`$datasetName`")
 
-    val resultVocab = datasetVocabs(datasetID).withDefaults()
+    val resultVocab = datasetVocabs(datasetName).withDefaults()
 
     if (result.getSchema
           .getTableColumn(resultVocab.offsetColumn.get)
@@ -256,7 +256,7 @@ class Engine(
   }
 
   private def processAvailableAndStopWithSavepoint(
-    inputSlices: Map[DatasetID, InputSlice],
+    inputSlices: Map[DatasetName, InputSlice],
     checkpointDir: Path
   ): Unit = {
     val job = env.executeAsync()
@@ -302,14 +302,14 @@ class Engine(
   }
 
   private def prepareInputSlices(
-    inputs: Vector[QueryInput],
+    inputs: Vector[ExecuteQueryInput],
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
-  ): Map[DatasetID, InputSlice] = {
+  ): Map[DatasetName, InputSlice] = {
     inputs
       .map(input => {
         (
-          input.datasetID,
+          input.datasetName,
           prepareInputSlice(
             input,
             prevCheckpointDir,
@@ -321,14 +321,14 @@ class Engine(
   }
 
   private def prepareInputSlice(
-    input: QueryInput,
+    input: ExecuteQueryInput,
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
   ): InputSlice = {
-    val markerPath = newCheckpointDir.resolve(s"${input.datasetID}.marker")
+    val markerPath = newCheckpointDir.resolve(s"${input.datasetName}.marker")
     val prevStatsPath =
-      prevCheckpointDir.map(_.resolve(s"${input.datasetID}.stats"))
-    val newStatsPath = newCheckpointDir.resolve(s"${input.datasetID}.stats")
+      prevCheckpointDir.map(_.resolve(s"${input.datasetName}.stats"))
+    val newStatsPath = newCheckpointDir.resolve(s"${input.datasetName}.stats")
 
     val prevStats = prevStatsPath.map(readStats)
     val vocab = input.vocab.withDefaults()
@@ -337,7 +337,7 @@ class Engine(
     val stream =
       sliceData(
         openStream(
-          input.datasetID,
+          input.datasetName,
           input.schemaFile,
           input.dataPaths,
           markerPath,
@@ -376,7 +376,7 @@ class Engine(
     )(stream.dataType)
 
     val streamWithStats = streamWithWatermarks
-      .withStats(input.datasetID.toString, newStatsPath)
+      .withStats(input.datasetName.toString, newStatsPath)
     //.withDebugLogging(input.datasetID.toString)
 
     InputSlice(
@@ -404,19 +404,13 @@ class Engine(
     }
   }
 
-  private def typedMap[T](m: Map[String, T]): Map[DatasetID, T] = {
-    m.map {
-      case (id, value) => (DatasetID(id), value)
-    }
-  }
-
   private def gatherStats(
-    datasetIDs: Seq[DatasetID],
+    datasetNames: Seq[DatasetName],
     newCheckpointDir: Path
-  ): Map[DatasetID, SliceStats] = {
-    datasetIDs
-      .map(id => (id, newCheckpointDir.resolve(s"$id.stats")))
-      .map { case (id, p) => (id, readStats(p)) }
+  ): Map[DatasetName, SliceStats] = {
+    datasetNames
+      .map(name => (name, newCheckpointDir.resolve(s"$name.stats")))
+      .map { case (name, p) => (name, readStats(p)) }
       .toMap
   }
 
@@ -445,7 +439,7 @@ class Engine(
   }
 
   private def openStream(
-    datasetID: DatasetID,
+    datasetName: DatasetName,
     schemaFile: Path,
     filesToRead: Vector[Path],
     markerPath: Path,
@@ -464,14 +458,14 @@ class Engine(
     val javaStream =
       env.getJavaEnv.addSource(
         new ParquetSourceFunction(
-          datasetID.toString,
+          datasetName.toString,
           filesToRead.map(_.toString),
           inputFormat,
           prevWatermark.getOrElse(Instant.MIN),
           explicitWatermarks.map(_.eventTime),
           markerPath.toString
         ),
-        datasetID.toString
+        datasetName.toString
       )
 
     new DataStream[Row](javaStream)
