@@ -162,11 +162,14 @@ class Engine(
     transform: Transform.Sql
   ): Table = {
     val temporalTables =
-      transform.temporalTables.getOrElse(Vector.empty).map(t => (t.id, t)).toMap
+      transform.temporalTables
+        .getOrElse(Vector.empty)
+        .map(t => (t.name, t))
+        .toMap
 
     // Setup inputs
-    for ((inputID, slice) <- inputSlices) {
-      val inputVocab = datasetVocabs(inputID).withDefaults()
+    for ((inputName, slice) <- inputSlices) {
+      val inputVocab = datasetVocabs(inputName).withDefaults()
 
       val eventTimeColumn = inputVocab.eventTimeColumn.get
 
@@ -186,25 +189,25 @@ class Engine(
 
       logger.info(
         "Registered input '{}' with schema:\n{}",
-        inputID,
+        inputName,
         table.getSchema
       )
 
-      tEnv.createTemporaryView(s"`$inputID`", table)
+      tEnv.createTemporaryView(s"`$inputName`", table)
 
       temporalTables
-        .get(inputID.toString)
+        .get(inputName.toString)
         .map(_.primaryKey)
         .getOrElse(Vector.empty) match {
         case Vector() =>
         case Vector(pk) =>
           tEnv.registerFunction(
-            inputID.toString,
+            inputName.toString,
             table.createTemporalTableFunction(eventTimeColumn, pk)
           )
           logger.info(
             "Registered input '{}' as temporal table with PK: {}",
-            inputID,
+            inputName,
             pk
           )
         case _ =>

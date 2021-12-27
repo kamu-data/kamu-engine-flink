@@ -676,7 +676,7 @@ checksum = "624a8340c38c1b80fd549087862da4ba43e08858af025b236e509b6649fc13d5"
 [[package]]
 name = "opendatafabric"
 version = "0.74.0"
-source = "git+https://github.com/kamu-data/kamu-cli?branch=rfc-content-addressability#dabd19bf2188a15e648fab0c8eae2f17c3fc825a"
+source = "git+https://github.com/kamu-data/kamu-cli?branch=rfc-content-addressability#09ac1fa70083503c1742f410fea8e57cf03f290b"
 dependencies = [
  "bs58",
  "byteorder",

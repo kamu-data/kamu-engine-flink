@@ -55,7 +55,7 @@ class EngineJoinStreamToTemporalTableTest
            |  kind: sql
            |  engine: flink
            |  temporalTables:
-           |  - id: stocks.owned
+           |  - name: stocks.owned
            |    primaryKey:
            |    - symbol
            |  query: >
@@ -203,7 +203,7 @@ class EngineJoinStreamToTemporalTableTest
            |  kind: sql
            |  engine: flink
            |  temporalTables:
-           |  - id: stocks.owned
+           |  - name: stocks.owned
            |    primaryKey:
            |    - symbol
            |  query: >
