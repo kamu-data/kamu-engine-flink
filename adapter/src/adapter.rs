@@ -31,12 +31,22 @@ impl FlinkODFAdapter {
 
     pub async fn execute_query_impl(
         &self,
-        request: ExecuteQueryRequest,
+        mut request: ExecuteQueryRequest,
     ) -> Result<ExecuteQueryResponse, Box<dyn std::error::Error>> {
         let in_out_dir = PathBuf::from("/opt/engine/in-out");
         let _ = std::fs::remove_dir_all(&in_out_dir);
         let _ = std::fs::create_dir_all(&in_out_dir);
 
+        // Prepare checkpoint
+        let orig_new_checkpoint_path = request.new_checkpoint_path;
+        request.new_checkpoint_path = in_out_dir.join("new-checkpoint");
+        if let Some(tar_path) = &request.prev_checkpoint_path {
+            let restored_checkpoint_path = in_out_dir.join("prev-checkpoint");
+            Self::unpack_checkpoint(tar_path, &restored_checkpoint_path)?;
+            request.prev_checkpoint_path = Some(restored_checkpoint_path);
+        }
+
+        // Write request
         {
             let request_path = PathBuf::from("/opt/engine/in-out/request.yaml");
             let data = YamlEngineProtocol.write_execute_query_request(&request)?;
@@ -46,7 +56,7 @@ impl FlinkODFAdapter {
         let mut cmd = tokio::process::Command::new("/opt/flink/bin/flink");
         cmd.current_dir("/opt/flink")
             .args(
-                if let Some(prev_checkpoint_dir) = &request.prev_checkpoint_dir {
+                if let Some(prev_checkpoint_dir) = &request.prev_checkpoint_path {
                     vec![
                         "run".to_owned(),
                         "-s".to_owned(),
@@ -82,6 +92,14 @@ impl FlinkODFAdapter {
         let response_path = PathBuf::from("/opt/engine/in-out/response.yaml");
 
         if response_path.exists() {
+            // Pack checkpoint
+            if request.new_checkpoint_path.exists()
+                && request.new_checkpoint_path.read_dir()?.next().is_some()
+            {
+                std::fs::create_dir_all(orig_new_checkpoint_path.parent().unwrap())?;
+                Self::pack_checkpoint(&request.new_checkpoint_path, &orig_new_checkpoint_path)?;
+            }
+
             let data = std::fs::read_to_string(&response_path)?;
             Ok(YamlEngineProtocol.read_execute_query_response(data.as_bytes())?)
         } else if !exit_status.success() {
@@ -135,5 +153,32 @@ impl FlinkODFAdapter {
         }
 
         Ok(savepoints.pop().unwrap())
+    }
+
+    fn unpack_checkpoint(
+        prev_checkpoint_path: &Path,
+        target_dir: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        info!(
+            ?prev_checkpoint_path,
+            ?target_dir,
+            "Unpacking previous checkpoint"
+        );
+        std::fs::create_dir(target_dir)?;
+        let mut archive = tar::Archive::new(std::fs::File::open(prev_checkpoint_path)?);
+        archive.unpack(target_dir)?;
+        Ok(())
+    }
+
+    fn pack_checkpoint(
+        source_dir: &Path,
+        new_checkpoint_path: &Path,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        info!(?source_dir, ?new_checkpoint_path, "Packing new checkpoint");
+        let mut ar = tar::Builder::new(std::fs::File::create(new_checkpoint_path)?);
+        ar.follow_symlinks(false);
+        ar.append_dir_all(".", source_dir)?;
+        ar.finish()?;
+        Ok(())
     }
 }

@@ -78,7 +78,7 @@ class EngineFormatsTest
            |      CAST(`value` as DECIMAL(38,18)) as decimal_38_18
            |    FROM `in`
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab: {}
            |""".stripMargin
@@ -165,7 +165,7 @@ class EngineFormatsTest
            |  query: >
            |    SELECT event_time, cast(`decimal` as string) as `decimal` FROM `in`
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab: {}
            |""".stripMargin

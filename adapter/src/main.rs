@@ -4,7 +4,7 @@ use tonic::transport::Server;
 
 use kamu_engine_spark_adapter::adapter::FlinkODFAdapter;
 use kamu_engine_spark_adapter::grpc::EngineGRPCImpl;
-use opendatafabric::engine::generated::engine_server::EngineServer;
+use opendatafabric::engine::engine_grpc_generated::engine_server::EngineServer;
 
 /////////////////////////////////////////////////////////////////////////////////////////
 

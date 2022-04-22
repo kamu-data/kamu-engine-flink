@@ -64,7 +64,7 @@ class EngineAggregationTest
            |    FROM `in`
            |    GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |""".stripMargin
       )
@@ -114,7 +114,7 @@ class EngineAggregationTest
           TickerSummary(ts(10), ts(2), "B", 22, 23)
         )
 
-        request.newCheckpointDir
+        request.newCheckpointPath
       }
 
       lastCheckpointDir = {
@@ -162,7 +162,7 @@ class EngineAggregationTest
           TickerSummary(ts(20), ts(4), "B", 26, 27)
         )
 
-        request.newCheckpointDir
+        request.newCheckpointPath
       }
 
       val (lastCheckpointDir2, lastInputFile) = {
@@ -203,7 +203,7 @@ class EngineAggregationTest
         )
 
         (
-          request.newCheckpointDir,
+          request.newCheckpointPath,
           request.inputs
             .find(i => i.datasetName.toString == "in")
             .get
@@ -253,7 +253,7 @@ class EngineAggregationTest
           TickerSummary(ts(31), ts(6), "B", 30, 30)
         )
 
-        request.newCheckpointDir
+        request.newCheckpointPath
       }
 
       { // Advances watermark again without expecting any output this time
@@ -316,7 +316,7 @@ class EngineAggregationTest
           |    FROM `in`
           |    GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
           |inputs: []
-          |newCheckpointDir: ""
+          |newCheckpointPath: ""
           |outDataPath: ""
           |vocab: {}
           |""".stripMargin
@@ -366,7 +366,7 @@ class EngineAggregationTest
           TickerSummary(ts(10), ts(1), "B", 20, 21)
         )
 
-        request.newCheckpointDir
+        request.newCheckpointPath
       }
 
       {

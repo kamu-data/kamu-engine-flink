@@ -21,12 +21,12 @@ trait EngineHelpers {
   def withRandomOutputPath(
     request: ExecuteQueryRequest,
     layout: DatasetLayout,
-    prevCheckpointDir: Option[Path] = None
+    prevCheckpointPath: Option[Path] = None
   ): ExecuteQueryRequest = {
     request.copy(
       outDataPath = layout.dataDir.resolve(randomDataFileName()),
-      prevCheckpointDir = prevCheckpointDir,
-      newCheckpointDir = layout.checkpointsDir
+      prevCheckpointPath = prevCheckpointPath,
+      newCheckpointPath = layout.checkpointsDir
         .resolve(Random.alphanumeric.take(10).mkString(""))
     )
   }

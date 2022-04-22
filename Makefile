@@ -1,6 +1,6 @@
 FLINK_IMAGE_VERSION = 1.13.1-scala_2.12-java8
 FLINK_IMAGE = flink:$(FLINK_IMAGE_VERSION)
-ENGINE_IMAGE_VERSION = 0.13.0-flink_$(FLINK_IMAGE_VERSION)
+ENGINE_IMAGE_VERSION = 0.14.0-flink_$(FLINK_IMAGE_VERSION)
 ENGINE_IMAGE = kamudata/engine-flink:$(ENGINE_IMAGE_VERSION)
 
 
@@ -12,7 +12,7 @@ engine-assembly:
 .PHONY: adapter-assembly
 adapter-assembly:
 	cd adapter && \
-	cross build --target x86_64-unknown-linux-gnu --release
+	RUSTFLAGS="" cross build --target x86_64-unknown-linux-gnu --release
 
 
 .PHONY: image-build

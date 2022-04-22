@@ -38,7 +38,7 @@ class EngineMapTest
            |      price * 10 as price
            |    FROM `in`
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab: {}
            |""".stripMargin
@@ -81,7 +81,7 @@ class EngineMapTest
           Ticker(3, ts(10), ts(4), "B", 210)
         )
 
-        request.newCheckpointDir
+        request.newCheckpointPath
       }
 
       { // Input comes in two files

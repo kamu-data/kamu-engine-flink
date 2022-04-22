@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Kamu
-opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "rfc-content-addressability" }
+opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "rfc-simple-transfer-protocol" }
 # opendatafabric = { path = "../../kamu-cli/opendatafabric" }
 
 # RPC
@@ -19,6 +19,7 @@ tokio-stream = "*"
 serde = { version = "*", features = ["derive"] }
 serde_with = "*"
 serde_yaml = "*"
+tar = "*"  # Checkpoitnt packing
 
 # Tracing / logging / telemetry
 tracing = "*"  

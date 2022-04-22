@@ -70,7 +70,7 @@ class EngineJoinStreamToTemporalTableTest
            |      LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
            |    WHERE t.symbol = owned.symbol
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab: {}
            |""".stripMargin
@@ -129,7 +129,7 @@ class EngineJoinStreamToTemporalTableTest
           StocksOwnedWithValue(ts(10), ts(3), "B", 200, 22, 4400)
         )
 
-        request.newCheckpointDir
+        request.newCheckpointPath
       }
 
       {
@@ -218,7 +218,7 @@ class EngineJoinStreamToTemporalTableTest
            |      LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
            |    WHERE t.symbol = owned.symbol
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab: {}
            |""".stripMargin

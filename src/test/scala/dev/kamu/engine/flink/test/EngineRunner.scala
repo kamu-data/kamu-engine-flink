@@ -22,7 +22,7 @@ import org.slf4j.LoggerFactory
 
 class EngineRunner(
   dockerClient: DockerClient,
-  image: String = "kamudata/engine-flink:0.12.0-flink_1.13.1-scala_2.12-java8",
+  image: String = "kamudata/engine-flink:0.14.0-flink_1.13.1-scala_2.12-java8",
   networkName: String = "kamu-flink"
 ) {
   private val logger = LoggerFactory.getLogger(getClass)
@@ -85,9 +85,9 @@ class EngineRunner(
 
         jobManager.waitForHostPort(8081, 15 seconds)
 
-        val newCheckpointDir = request.newCheckpointDir
+        val newCheckpointPath = request.newCheckpointPath
         val prevSavepoint =
-          request.prevCheckpointDir.map(p => getPrevSavepoint(p))
+          request.prevCheckpointPath.map(p => getPrevSavepoint(p))
         val savepointArgs = prevSavepoint.map(p => s"-s $p").getOrElse("")
 
         try {
@@ -104,8 +104,8 @@ class EngineRunner(
             .!
 
           if (exitCode != 0) {
-            if (newCheckpointDir.toFile.exists()) {
-              FileUtils.deleteDirectory(newCheckpointDir.toFile)
+            if (newCheckpointPath.toFile.exists()) {
+              FileUtils.deleteDirectory(newCheckpointPath.toFile)
             }
             throw new RuntimeException(
               s"Engine run failed with exit code: $exitCode"

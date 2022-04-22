@@ -21,4 +21,5 @@ COPY adapter/target/x86_64-unknown-linux-gnu/release/kamu-engine-spark-adapter /
 
 EXPOSE 2884/tcp
 ENTRYPOINT ["/usr/bin/tini", "--"]
+ENV RUST_BACKTRACE=1
 CMD ["/opt/engine/bin/adapter"]

@@ -89,7 +89,7 @@ class EngineJoinStreamToStreamTest
            |      o.order_id = s.order_id
            |      AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab:
            |  eventTimeColumn: order_time
@@ -142,7 +142,7 @@ class EngineJoinStreamToStreamTest
           ShippedOrder(ts(10), ts(1), 2, 120, Some(ts(2)), 120)
         )
 
-        request.newCheckpointDir
+        request.newCheckpointPath
       }
 
       {
@@ -247,7 +247,7 @@ class EngineJoinStreamToStreamTest
            |      FROM shipment_stats
            |      WHERE order_quantity <> shipped_quantity_total
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab:
            |  eventTimeColumn: order_time
@@ -370,7 +370,7 @@ class EngineJoinStreamToStreamTest
            |      FROM shipment_stats
            |      WHERE order_quantity <> shipped_quantity_total
            |inputs: []
-           |newCheckpointDir: ""
+           |newCheckpointPath: ""
            |outDataPath: ""
            |vocab:
            |  eventTimeColumn: order_time

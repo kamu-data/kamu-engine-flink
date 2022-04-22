@@ -74,13 +74,13 @@ class Engine(
   ): ExecuteQueryResponse = {
     val transform = loadTransform(request.transform)
 
-    File(request.newCheckpointDir).createDirectories()
+    File(request.newCheckpointPath).createDirectories()
 
     val inputSlices =
       prepareInputSlices(
         request.inputs,
-        request.prevCheckpointDir,
-        request.newCheckpointDir
+        request.prevCheckpointPath,
+        request.newCheckpointPath
       )
 
     val datasetVocabs = request.inputs
@@ -107,7 +107,7 @@ class Engine(
       .assignOffsets(request.offset)
       .withStats(
         request.datasetName.toString,
-        request.newCheckpointDir.resolve(s"${request.datasetName}.stats")
+        request.newCheckpointPath.resolve(s"${request.datasetName}.stats")
       )
     //.withDebugLogging(request.datasetID.toString)
 
@@ -131,12 +131,12 @@ class Engine(
 
     processAvailableAndStopWithSavepoint(
       inputSlices,
-      request.newCheckpointDir
+      request.newCheckpointPath
     )
 
     val stats = gatherStats(
       request.datasetName :: inputSlices.keys.toList,
-      request.newCheckpointDir
+      request.newCheckpointPath
     )
 
     val outputStats = stats(request.datasetName)
