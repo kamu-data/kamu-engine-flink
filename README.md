@@ -1,9 +1,8 @@
 # Apache Flink Engine
-
 This the implementation of the `Engine` contract of [Open Data Fabric](http://opendatafabric.org/) using the [Apache Flink](https://flink.apache.org/) stream processing framework. It is currently in use in [kamu-cli](https://github.com/kamu-data/kamu-cli) data management tool.
 
-## Features
 
+## Features
 Flink engine currently provides the most rich functionality for aggregating and joining event streams.
 
 ### Windowed Aggregations
@@ -51,7 +50,6 @@ WHERE t.symbol = owned.symbol
 ```
 
 ## Known Issues
-
 - Takes a long time to start up which is hurting the user experience
 - SQL parser is very sensitive to keywords and requires a lot of quoting
 - DECIMAL data type is broken in Parquet [FLINK-17804](https://issues.apache.org/jira/browse/FLINK-17804)
@@ -69,3 +67,7 @@ WHERE t.symbol = owned.symbol
 - Requires conversion to Avro to be able to save to Parquet
 - Does not support late data handling in SQL API [FLINK-XXX](https://stackoverflow.com/questions/51172965/flink-use-allowedlateness-in-flink-sql-api)
 - Does not support temporal table joins without or with compound primary key [FLINK-XXX]()
+
+
+## Developing
+See the [Developer Guide](DEVELOPER.md)
