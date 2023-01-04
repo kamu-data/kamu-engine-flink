@@ -9,6 +9,7 @@ use tracing::info;
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) struct FlinkJobManager {
     process: Child,
 }
@@ -41,6 +42,7 @@ impl FlinkJobManager {
 ///////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub(crate) struct FlinkTaskManager {
     process: Child,
 }

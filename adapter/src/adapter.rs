@@ -11,6 +11,7 @@ use crate::flink::{forward_to_logging, FlinkJobManager, FlinkTaskManager};
 /////////////////////////////////////////////////////////////////////////////////////////
 
 #[derive(Debug)]
+#[allow(dead_code)]
 pub struct FlinkODFAdapter {
     job_manager: FlinkJobManager,
     task_manager: FlinkTaskManager,

@@ -4,8 +4,8 @@ use opendatafabric::serde::{EngineProtocolDeserializer, EngineProtocolSerializer
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::{Request, Response, Status};
 
-use opendatafabric::engine::engine_grpc_generated::engine_server::Engine as EngineGRPC;
-use opendatafabric::engine::engine_grpc_generated::{
+use opendatafabric::engine::grpc_generated::engine_server::Engine as EngineGRPC;
+use opendatafabric::engine::grpc_generated::{
     ExecuteQueryRequest as ExecuteQueryRequestGRPC,
     ExecuteQueryResponse as ExecuteQueryResponseGRPC,
 };
