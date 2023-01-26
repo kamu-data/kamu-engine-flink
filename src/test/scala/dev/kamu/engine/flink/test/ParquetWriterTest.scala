@@ -36,7 +36,8 @@ class ParquetWriterTest
   def runTest[IN: Encoder: Decoder, OUT: Encoder: Decoder](
     input: List[IN],
     query: String,
-    expected: List[OUT]
+    expectedSchema: String,
+    expectedData: List[OUT]
   )(
     implicit schemaForIn: SchemaFor[IN],
     schemaForOut: SchemaFor[OUT]
@@ -133,8 +134,11 @@ class ParquetWriterTest
 
       env.execute()
 
+      val schema = ParquetHelpers.getSchemaFromFile(outPath)
+      schema.toString shouldEqual expectedSchema
+
       val actual = ParquetHelpers.read[OUT](outPath)
-      actual shouldEqual expected
+      actual shouldEqual expectedData
     }
   }
 
@@ -155,6 +159,14 @@ class ParquetWriterTest
         |  `symbol`,
         |  `price` * 10 as `price`
         |FROM input""".stripMargin,
+      """message org.apache.flink.avro.generated.record {
+        |  required int64 offset;
+        |  required int64 system_time (TIMESTAMP(MILLIS,true));
+        |  required int64 event_time (TIMESTAMP(MILLIS,true));
+        |  required binary symbol (STRING);
+        |  required int32 price;
+        |}
+        |""".stripMargin,
       List(
         Ticker(0, ts(5), ts(1, 1), "A", 100),
         Ticker(1, ts(5), ts(1, 1), "B", 200),
@@ -190,6 +202,13 @@ class ParquetWriterTest
         |  TRY_CAST (`value` as DECIMAL(13, 4)) as decimal_13_4,
         |  TRY_CAST (`value` as DECIMAL(38, 18)) as decimal_38_18
         |FROM input""".stripMargin,
+      """message org.apache.flink.avro.generated.record {
+        |  required int64 system_time (TIMESTAMP(MILLIS,true));
+        |  required int64 event_time (TIMESTAMP(MILLIS,true));
+        |  optional binary decimal_13_4 (DECIMAL(13,4));
+        |  optional binary decimal_38_18 (DECIMAL(38,18));
+        |}
+        |""".stripMargin,
       List(
         WriteResult(
           ts(1, 1),

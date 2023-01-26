@@ -113,6 +113,17 @@ class EngineFormatsTest
         tempDir
       )
 
+      val schema = ParquetHelpers.getSchemaFromFile(request.outDataPath)
+      schema.toString shouldEqual
+        """message org.apache.flink.avro.generated.record {
+          |  required int64 offset;
+          |  required int64 system_time (TIMESTAMP(MILLIS,true));
+          |  required int64 event_time (TIMESTAMP(MILLIS,true));
+          |  optional binary decimal_13_4 (DECIMAL(13,4));
+          |  optional binary decimal_38_18 (DECIMAL(38,18));
+          |}
+          |""".stripMargin
+
       val actual = ParquetHelpers
         .read[WriteResult](request.outDataPath)
         .sortBy(i => i.event_time.getTime)

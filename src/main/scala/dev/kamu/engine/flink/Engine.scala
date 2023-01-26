@@ -4,7 +4,6 @@ import java.nio.file.Path
 import java.time.Instant
 import java.util.Scanner
 import better.files.File
-import com.typesafe.config.ConfigObject
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
@@ -41,7 +40,6 @@ import org.apache.flink.api.scala._
 import org.apache.flink.core.execution.SavepointFormatType
 import org.apache.flink.formats.avro.RowDataToAvroConverters
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.table.catalog.ResolvedSchema
 import org.apache.flink.table.data.conversion.RowRowConverter
 import org.apache.flink.table.types.logical.RowType
 
