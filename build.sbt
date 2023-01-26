@@ -70,14 +70,14 @@ lazy val kamuCoreManifests = project
 
 lazy val versions = new {
   val betterFiles = "3.9.1"
-  val flink = "1.13.1"
+  val flink = "1.16.0"
   val pureConfig = "0.13.0"
   val spire = "0.13.0"
 }
 
 lazy val deps =
   new {
-    val slf4jApi = "org.slf4j" % "slf4j-api" % "1.7.30"
+    val slf4jApi = "org.slf4j" % "slf4j-api" % "1.7.36"
     // File System
     val betterFiles = "com.github.pathikrit" %% "better-files" % versions.betterFiles
     // Configs
@@ -93,20 +93,23 @@ val flinkDependencies = Seq(
   deps.slf4jApi,
   deps.betterFiles,
   "org.apache.flink" %% "flink-scala" % versions.flink % "provided",
-  "org.apache.flink" %% "flink-streaming-scala" % versions.flink % "provided",
-  "org.apache.flink" %% "flink-table-api-scala-bridge" % versions.flink % "provided",
-  // TODO: Tests won't run without this ... are we using blink or not?
+  //"org.apache.flink" %% "flink-streaming-scala" % versions.flink % "provided",
+  //"org.apache.flink" %% "flink-table-api-scala" % versions.flink,
+  "org.apache.flink" % "flink-table-runtime" % versions.flink % "provided",
+  "org.apache.flink" %% "flink-table-api-scala-bridge" % versions.flink,
   "org.apache.flink" %% "flink-table-planner" % versions.flink % "test",
-  "org.apache.flink" %% "flink-table-planner-blink" % versions.flink % "provided",
+  "org.apache.flink" % "flink-connector-files" % versions.flink % "provided",
   "org.apache.flink" % "flink-avro" % versions.flink,
-  "org.apache.flink" %% "flink-parquet" % versions.flink,
-  "org.apache.parquet" % "parquet-avro" % "1.11.1",
+  "org.apache.flink" % "flink-parquet" % versions.flink,
+  ("org.apache.parquet" % "parquet-avro" % "1.12.3")
+    .exclude("org.apache.hadoop", "hadoop-client")
+    .exclude("it.unimi.dsi", "fastutil"),
   ("org.apache.hadoop" % "hadoop-client" % "2.8.3")
     .exclude("commons-beanutils", "commons-beanutils")
     .exclude("commons-beanutils", "commons-beanutils-core"),
   "org.scalatest" %% "scalatest" % "3.0.8" % "test",
-  "org.apache.flink" %% "flink-test-utils" % versions.flink % "test",
-  "org.apache.flink" %% "flink-runtime" % versions.flink % "test",
+  "org.apache.flink" % "flink-test-utils" % versions.flink % "test",
+  "org.apache.flink" % "flink-runtime" % versions.flink % "test",
   // TODO: newer avro breaks flink serialization?
   "com.sksamuel.avro4s" %% "avro4s-core" % "2.0.4" % "test"
 )
@@ -132,7 +135,8 @@ assembly / assemblyOption := (assembly / assemblyOption).value
   .copy(includeScala = false)
 
 assembly / assemblyMergeStrategy := {
-  case "module-info.class" => MergeStrategy.discard
+  case "module-info.class"                     => MergeStrategy.discard
+  case "META-INF/io.netty.versions.properties" => MergeStrategy.first
   case x =>
     val oldStrategy = (assembly / assemblyMergeStrategy).value
     oldStrategy(x)

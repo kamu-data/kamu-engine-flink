@@ -10,6 +10,7 @@ import dev.kamu.core.utils.fs._
 
 trait TimeHelpers {
 
+  /// Creates a timestamp from UTC DAY+HH:MM
   def ts(d: Int, h: Int = 0, m: Int = 0): Timestamp = {
     val dt = LocalDateTime.of(2000, 1, d, h, m)
     val zdt = ZonedDateTime.of(dt, ZoneOffset.UTC)

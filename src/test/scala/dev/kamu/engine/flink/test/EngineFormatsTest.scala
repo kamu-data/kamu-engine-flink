@@ -74,8 +74,8 @@ class EngineFormatsTest
            |  query: >
            |    SELECT
            |      event_time,
-           |      CAST(`value` as DECIMAL(13,4)) as decimal_13_4,
-           |      CAST(`value` as DECIMAL(38,18)) as decimal_38_18
+           |      TRY_CAST(`value` as DECIMAL(13,4)) as decimal_13_4,
+           |      TRY_CAST(`value` as DECIMAL(38,18)) as decimal_38_18
            |    FROM `in`
            |inputs: []
            |newCheckpointPath: ""

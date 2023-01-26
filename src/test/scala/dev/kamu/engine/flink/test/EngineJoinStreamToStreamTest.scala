@@ -58,7 +58,7 @@ class EngineJoinStreamToStreamTest
     with TimeHelpers
     with EngineHelpers {
 
-  test("Stream to stream join") {
+  test("Stream to stream join basic") {
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       val engineRunner = new EngineRunner(new DockerClient())
 
@@ -80,7 +80,7 @@ class EngineJoinStreamToStreamTest
            |      o.event_time as order_time,
            |      o.order_id,
            |      o.quantity as order_quantity,
-           |      CAST(s.event_time as TIMESTAMP) as shipped_time,
+           |      CAST(s.event_time as TIMESTAMP(3)) as shipped_time,
            |      COALESCE(s.num_shipped, 0) as shipped_quantity
            |    FROM
            |      orders as o
@@ -197,7 +197,7 @@ class EngineJoinStreamToStreamTest
     }
   }
 
-  test("Stream to stream join result can be used with other queries") {
+  test("Stream to stream join result can be used with other queries (simple)") {
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       val engineRunner = new EngineRunner(new DockerClient())
 
@@ -221,7 +221,7 @@ class EngineJoinStreamToStreamTest
            |        o.event_time as order_time,
            |        o.order_id,
            |        o.quantity as order_quantity,
-           |        CAST(s.event_time as TIMESTAMP) as shipped_time,
+           |        CAST(s.event_time as TIMESTAMP(3)) as shipped_time,
            |        COALESCE(s.num_shipped, 0) as shipped_quantity
            |      FROM
            |        orders as o
@@ -293,11 +293,11 @@ class EngineJoinStreamToStreamTest
           tempDir
         )
 
+        result.outputWatermark.get shouldEqual ts(13).toInstant
         result.dataInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 1
         )
-        result.outputWatermark.get shouldEqual ts(13).toInstant
 
         val actual = ParquetHelpers
           .read[ShipmentStats](request.outDataPath)
@@ -344,7 +344,7 @@ class EngineJoinStreamToStreamTest
            |        o.event_time as order_time,
            |        o.order_id,
            |        o.quantity as order_quantity,
-           |        CAST(s.event_time as TIMESTAMP) as shipped_time,
+           |        CAST(s.event_time as TIMESTAMP(3)) as shipped_time,
            |        COALESCE(s.num_shipped, 0) as shipped_quantity
            |      FROM
            |        orders as o

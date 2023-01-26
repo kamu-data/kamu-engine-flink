@@ -1,7 +1,6 @@
 package dev.kamu.engine.flink
 
-import java.nio.file.{Files, Path, Paths}
-import java.sql.Timestamp
+import java.nio.file.Path
 import java.time.Instant
 import java.util.Scanner
 import better.files.File
@@ -11,50 +10,46 @@ import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.{
-  ExecuteQueryRequest,
-  ExecuteQueryResponse,
   ExecuteQueryInput,
-  Watermark
+  ExecuteQueryRequest,
+  ExecuteQueryResponse
 }
-import dev.kamu.core.utils.Clock
 import dev.kamu.core.utils.fs._
-import org.apache.avro.Schema
 import org.apache.avro.generic.GenericRecord
-import org.apache.commons.io.FileUtils
 import org.apache.flink.api.common.JobStatus
-import org.apache.flink.api.common.io.FileInputFormat
-import org.apache.flink.api.common.typeinfo.TypeInformation
-import org.apache.flink.api.java.typeutils.RowTypeInfo
-import org.apache.flink.core.fs.{Path => FlinkPath}
+import org.apache.flink.connector.file.src.FileSourceSplit
 import org.apache.flink.formats.avro.typeutils.{
   AvroSchemaConverter,
   GenericRecordAvroTypeInfo
 }
-import org.apache.flink.formats.parquet.ParquetRowInputFormat
-import org.apache.flink.streaming.api.datastream.DataStreamSource
-import org.apache.flink.streaming.api.functions.source.{
-  FileProcessingMode,
-  TimestampedFileInputSplit
-}
+import org.apache.flink.formats.parquet.ParquetColumnarRowInputFormatKamu
+import org.apache.flink.formats.parquet.utils.ParquetSchemaConverterKamu
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.table.api.Table
+import org.apache.flink.table.api.{$, Table}
 import org.apache.flink.table.api.bridge.scala._
-import org.apache.flink.table.expressions.ExpressionParser
-import org.apache.flink.table.typeutils.FieldInfoUtils
+import org.apache.flink.table.data.RowData
+import org.apache.flink.table.runtime.typeutils.{
+  ExternalTypeInfo,
+  InternalTypeInfo
+}
 import org.apache.flink.types.Row
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
-import org.apache.parquet.schema.{MessageType, MessageTypeParser}
+import org.apache.parquet.schema.MessageType
 import org.slf4j.LoggerFactory
-import spire.math.interval.{Closed, Open, Unbound}
-import spire.math.{All, Empty, Interval}
+import org.apache.flink.api.scala._
+import org.apache.flink.core.execution.SavepointFormatType
+import org.apache.flink.formats.avro.RowDataToAvroConverters
+import org.apache.flink.streaming.api.scala._
+import org.apache.flink.table.catalog.ResolvedSchema
+import org.apache.flink.table.data.conversion.RowRowConverter
+import org.apache.flink.table.types.logical.RowType
 
 import scala.collection.JavaConverters._
-import scala.sys.process.Process
 
-case class InputSlice(
-  dataStream: DataStream[Row],
-  interval: Option[OffsetInterval],
+case class InputStream(
+  inputDef: ExecuteQueryInput,
+  dataStream: DataStream[RowData],
   markerPath: Path
 )
 
@@ -68,74 +63,84 @@ class Engine(
   tEnv: StreamTableEnvironment
 ) {
   private val logger = LoggerFactory.getLogger(classOf[Engine])
+  private val hadoopConfig = new org.apache.hadoop.conf.Configuration()
 
-  def executeQueryExtended(
-    request: ExecuteQueryRequest
+  def executeRequest(
+    requestRaw: ExecuteQueryRequest
   ): ExecuteQueryResponse = {
+    val request = requestRaw.withVocabDefaults()
     val transform = loadTransform(request.transform)
 
     File(request.newCheckpointPath).createDirectories()
 
-    val inputSlices =
-      prepareInputSlices(
+    val inputs =
+      openInputs(
         request.inputs,
         request.prevCheckpointPath,
         request.newCheckpointPath
       )
 
     val datasetVocabs = request.inputs
-      .map(i => (i.datasetName, i.vocab.withDefaults()))
-      .toMap + (request.datasetName -> request.vocab.withDefaults())
+      .map(i => (i.datasetName, i.vocab))
+      .toMap + (request.datasetName -> request.vocab)
 
-    executeQuery(
+    val resultStream = executeTransform(
       request.datasetName,
-      inputSlices,
+      inputs.values.toVector,
       datasetVocabs,
-      transform
+      transform,
+      request.systemTime,
+      request.offset
+    ).withStats(
+      request.datasetName.toString,
+      request.newCheckpointPath.resolve(s"${request.datasetName}.stats")
     )
 
-    // Add system_time column
-    val resultTable = tEnv
-      .sqlQuery(
-        s"SELECT cast(0 as BIGINT) as `offset`, CAST('${Timestamp.from(request.systemTime)}' as TIMESTAMP) as `system_time`, * FROM `${request.datasetName}`"
+    // Convert Row -> RowData
+
+    val resultStreamDataType =
+      resultStream.dataType.asInstanceOf[ExternalTypeInfo[Row]].getDataType
+
+    val converterRowData =
+      RowRowConverter.create(resultStreamDataType)
+
+    val resultStreamRowData =
+      resultStream.map(row => converterRowData.toInternal(row))(
+        InternalTypeInfo.of(resultStreamDataType.getLogicalType)
       )
 
-    logger.info(s"Result schema:\n${resultTable.getSchema}")
+    // Convert RowData -> Avro GenericRecord
 
-    val resultStream = resultTable
-      .toAppendStream[Row]
-      .assignOffsets(request.offset)
-      .withStats(
-        request.datasetName.toString,
-        request.newCheckpointPath.resolve(s"${request.datasetName}.stats")
-      )
-    //.withDebugLogging(request.datasetID.toString)
-
-    // Convert to Avro so we can then save in Parquet :(
-    val avroSchema = SchemaConverter.convert(resultTable.getSchema)
+    val avroSchema =
+      AvroSchemaConverter.convertToSchema(resultStreamDataType.getLogicalType)
     logger.info(s"Result schema in Avro format:\n${avroSchema.toString(true)}")
 
-    val avroConverter = new AvroConverter(avroSchema.toString())
-    val avroTypeInfo = new GenericRecordAvroTypeInfo(avroSchema)
-    val avroStream =
-      resultStream.map(r => avroConverter.convertRowToAvroRecord(r))(
-        avroTypeInfo
-      )
+    val converterAvro = RowDataToAvroConverters.createConverter(
+      resultStreamDataType.getLogicalType
+    )
 
-    avroStream.addSink(
+    val resultStreamAvro = resultStreamRowData.map(
+      row => converterAvro.convert(avroSchema, row).asInstanceOf[GenericRecord]
+    )(new GenericRecordAvroTypeInfo(avroSchema))
+
+    resultStreamAvro.addSink(
       new ParuqetSink(
         avroSchema.toString(),
         request.outDataPath.toString
       )
     )
 
+    // Run processing
+
+    logger.info(s"Execution plan: ${env.getExecutionPlan}")
+
     processAvailableAndStopWithSavepoint(
-      inputSlices,
+      inputs.values.toVector,
       request.newCheckpointPath
     )
 
     val stats = gatherStats(
-      request.datasetName :: inputSlices.keys.toList,
+      request.datasetName :: inputs.keys.toList,
       request.newCheckpointPath
     )
 
@@ -155,66 +160,100 @@ class Engine(
     )
   }
 
-  private def executeQuery(
+  def executeTransform(
     datasetName: DatasetName,
-    inputSlices: Map[DatasetName, InputSlice],
+    inputs: Seq[InputStream],
     datasetVocabs: Map[DatasetName, DatasetVocabulary],
-    transform: Transform.Sql
-  ): Table = {
+    transform: Transform.Sql,
+    systemTime: Instant,
+    startOffset: Long
+  ): DataStream[Row] = {
+    // Temporal table helpers
     val temporalTables =
       transform.temporalTables
         .getOrElse(Vector.empty)
         .map(t => (t.name, t))
         .toMap
 
+    def maybeRegisterTemporalTable(
+      table: Table,
+      alias: String,
+      inputEventTimeColumn: Option[String]
+    ): Unit = {
+      val tt = temporalTables
+        .get(alias)
+
+      if (tt.isDefined) {
+        val eventTimeColumn =
+          tt.get.eventTimeColumn.orElse(inputEventTimeColumn)
+
+        if (eventTimeColumn.isEmpty) {
+          throw new NotImplementedError(
+            "Temporal table for an intermediate query has to specify eventTimeColumn"
+          )
+        }
+
+        tt.get.primaryKey match {
+          case Vector() =>
+            throw new NotImplementedError(
+              "Temporal table does not define a primary key"
+            )
+          case Vector(pk) =>
+            val tableFunc =
+              table.createTemporalTableFunction($(eventTimeColumn.get), $(pk))
+
+            tEnv.createTemporarySystemFunction(alias, tableFunc)
+            logger.info(
+              "Registered temporal table '{}' with PK: {}",
+              alias: Any,
+              pk: Any
+            )
+          case _ =>
+            throw new NotImplementedError(
+              "Composite primary keys are not supported by Flink"
+            )
+        }
+      }
+    }
+
     // Setup inputs
-    for ((inputName, slice) <- inputSlices) {
+    for (input <- inputs) {
+      val inputName = input.inputDef.datasetName
       val inputVocab = datasetVocabs(inputName).withDefaults()
 
-      val eventTimeColumn = inputVocab.eventTimeColumn.get
+      // See: https://nightlies.apache.org/flink/flink-docs-release-1.16/docs/dev/table/data_stream_api/#examples-for-fromdatastream
+      val tableSchemaBuilder = org.apache.flink.table.api.Schema
+        .newBuilder()
+        .watermark(inputVocab.eventTimeColumn.get, "SOURCE_WATERMARK()")
 
-      val columns = FieldInfoUtils
-        .getFieldNames(slice.dataStream.dataType)
-        .map({
-          case `eventTimeColumn` => s"$eventTimeColumn.rowtime"
-          case other             => other
-        })
-
-      val expressions =
-        ExpressionParser.parseExpressionList(columns.mkString(", ")).asScala
+      // TODO: FOR SYSTEM_TIME AS OF join requires PK to be set on the temporal table which is not convenient
+      // perhaps in future we can deduce PKs from the queries
+      temporalTables
+        .get(inputName.toString)
+        .foreach(
+          tt => tableSchemaBuilder.primaryKey(tt.primaryKey.toList.asJava)
+        )
 
       val table = tEnv
-        .fromDataStream(slice.dataStream, expressions: _*)
-        .dropColumns(inputVocab.systemTimeColumn.get)
+        .fromDataStream(
+          input.dataStream
+            .withDebugLogging(input.inputDef.datasetName.toString),
+          tableSchemaBuilder.build()
+        )
 
       logger.info(
         "Registered input '{}' with schema:\n{}",
         inputName,
-        table.getSchema
+        table.getResolvedSchema
       )
 
       tEnv.createTemporaryView(s"`$inputName`", table)
 
-      temporalTables
-        .get(inputName.toString)
-        .map(_.primaryKey)
-        .getOrElse(Vector.empty) match {
-        case Vector() =>
-        case Vector(pk) =>
-          tEnv.registerFunction(
-            inputName.toString,
-            table.createTemporalTableFunction(eventTimeColumn, pk)
-          )
-          logger.info(
-            "Registered input '{}' as temporal table with PK: {}",
-            inputName,
-            pk
-          )
-        case _ =>
-          throw new NotImplementedError(
-            "Composite primary keys are not supported by Flink"
-          )
-      }
+      maybeRegisterTemporalTable(
+        table.dropColumns($(inputVocab.systemTimeColumn.get)),
+        inputName.toString,
+        inputVocab.eventTimeColumn
+      )
     }
 
     // Setup transform
@@ -222,15 +261,24 @@ class Engine(
       val alias = step.alias.getOrElse(datasetName.toString)
       val table = tEnv.sqlQuery(step.query)
       tEnv.createTemporaryView(s"`$alias`", table)
+
+      val queryTable = tEnv.from(s"`$alias`")
+
+      maybeRegisterTemporalTable(queryTable, alias, None)
+
+      // Log intermediate results
+      queryTable.toChangelogStream.withDebugLogging(alias)
     }
 
     // Get result
-    val result = tEnv.from(s"`$datasetName`")
+    val rawResult = tEnv.from(s"`$datasetName`")
+    logger.info("Raw result schema:\n{}", rawResult.getResolvedSchema)
 
     val resultVocab = datasetVocabs(datasetName).withDefaults()
 
-    if (result.getSchema
-          .getTableColumn(resultVocab.offsetColumn.get)
+    // Validate user query result
+    if (rawResult.getResolvedSchema
+          .getColumn(resultVocab.offsetColumn.get)
           .isPresent)
       throw new Exception(
         s"Transformed data contains a column that conflicts with the system column name, " +
@@ -238,8 +286,8 @@ class Engine(
           s"to use a different name: ${resultVocab.offsetColumn.get}"
       )
 
-    if (result.getSchema
-          .getTableColumn(resultVocab.systemTimeColumn.get)
+    if (rawResult.getResolvedSchema
+          .getColumn(resultVocab.systemTimeColumn.get)
           .isPresent)
       throw new Exception(
         s"Transformed data contains a column that conflicts with the system column name, " +
@@ -247,19 +295,34 @@ class Engine(
           s"to use a different name: ${resultVocab.systemTimeColumn.get}"
       )
 
-    if (!result.getSchema
-          .getTableColumn(resultVocab.eventTimeColumn.get)
+    if (!rawResult.getResolvedSchema
+          .getColumn(resultVocab.eventTimeColumn.get)
           .isPresent)
       throw new Exception(
         s"Event time column ${resultVocab.eventTimeColumn.get} was not found amongst: " +
-          result.getSchema.getTableColumns.asScala.map(_.getName).mkString(", ")
+          rawResult.getResolvedSchema.getColumns.asScala
+            .map(_.getName)
+            .mkString(", ")
       )
 
-    result
+    val systemTimeStr = systemTime.toString.stripSuffix("Z").replace('T', ' ')
+
+    // Add system columns
+    val resultTable = tEnv
+      .sqlQuery(
+        s"SELECT cast(0 as BIGINT) as `offset`, CAST('${systemTimeStr}' as TIMESTAMP(3)) as `system_time`, * FROM `${datasetName}`"
+      )
+
+    logger.info("Final result schema:\n{}", resultTable.getSchema)
+
+    resultTable
+      .toDataStream[Row](classOf[Row])
+      .assignOffsets(startOffset)
+      .withDebugLogging(s"${datasetName}::final")
   }
 
   private def processAvailableAndStopWithSavepoint(
-    inputSlices: Map[DatasetName, InputSlice],
+    inputSlices: Seq[InputStream],
     checkpointDir: Path
   ): Unit = {
     val job = env.executeAsync()
@@ -273,7 +336,7 @@ class Engine(
     }
 
     def inputsExhausted(): Boolean = {
-      inputSlices.values.forall(i => File(i.markerPath).exists)
+      inputSlices.forall(i => File(i.markerPath).exists)
     }
 
     try {
@@ -288,32 +351,30 @@ class Engine(
       }
 
       logger.info(s"Self-canceling job ${job.getJobID.toString}")
-      val out = Process(
-        Seq(
-          "flink",
-          "cancel",
-          "-s",
-          checkpointDir.toUri.getPath,
-          job.getJobID.toString
+      job
+        .stopWithSavepoint(
+          false,
+          checkpointDir.toUri.toString,
+          SavepointFormatType.DEFAULT
         )
-      ).!!
-
-      logger.info(s"OUTPUT: $out")
+        .join()
     } finally {
-      inputSlices.values.foreach(i => File(i.markerPath).delete(true))
+      inputSlices.foreach(
+        i => File(i.markerPath).delete(swallowIOExceptions = true)
+      )
     }
   }
 
-  private def prepareInputSlices(
+  private def openInputs(
     inputs: Vector[ExecuteQueryInput],
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
-  ): Map[DatasetName, InputSlice] = {
+  ): Map[DatasetName, InputStream] = {
     inputs
       .map(input => {
         (
           input.datasetName,
-          prepareInputSlice(
+          openInputStreamCheckpointable(
             input,
             prevCheckpointDir,
             newCheckpointDir
@@ -323,85 +384,50 @@ class Engine(
       .toMap
   }
 
-  private def prepareInputSlice(
+  private def openInputStreamCheckpointable(
     input: ExecuteQueryInput,
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
-  ): InputSlice = {
+  ): InputStream = {
     val markerPath = newCheckpointDir.resolve(s"${input.datasetName}.marker")
     val prevStatsPath =
       prevCheckpointDir.map(_.resolve(s"${input.datasetName}.stats"))
     val newStatsPath = newCheckpointDir.resolve(s"${input.datasetName}.stats")
 
     val prevStats = prevStatsPath.map(readStats)
-    val vocab = input.vocab.withDefaults()
 
-    // TODO: use schema from metadata
     val stream =
-      sliceData(
-        openStream(
-          input.datasetName,
-          input.schemaFile,
-          input.dataPaths,
-          markerPath,
-          prevStats.flatMap(_.lastWatermark),
-          input.explicitWatermarks
-        ),
-        input.dataInterval,
-        vocab
+      openInputStream(
+        input,
+        prevStats.flatMap(_.lastWatermark),
+        terminateWhenExhausted = false,
+        Some(markerPath)
       )
 
-    val eventTimeColumn = vocab.eventTimeColumn.get
-    val eventTimePos = FieldInfoUtils
-      .getFieldNames(stream.dataType)
-      .indexOf(eventTimeColumn)
-
-    if (eventTimePos < 0)
-      throw new Exception(
-        s"Event time column not found: $eventTimeColumn"
-      )
-
-    // TODO: Support delayed watermarking
-    //val streamWithWatermarks = stream.assignTimestampsAndWatermarks(
-    //  BoundedOutOfOrderWatermark.forRow(
-    //    _.getField(eventTimePos).asInstanceOf[Timestamp].getTime,
-    //    Duration.Zero
-    //  )
-    //)
-
-    val streamWithWatermarks = stream.transform(
-      "Timestamps/Watermarks",
-      new CustomWatermarksOperator[Row](
-        new TimestampAssigner(
-          _.getField(eventTimePos).asInstanceOf[Timestamp].getTime
-        )
-      )
-    )(stream.dataType)
-
-    val streamWithStats = streamWithWatermarks
+    val streamWithStats = stream.dataStream
       .withStats(input.datasetName.toString, newStatsPath)
-    //.withDebugLogging(input.datasetID.toString)
 
-    InputSlice(
+    InputStream(
+      inputDef = input,
       dataStream = streamWithStats,
-      interval = input.dataInterval,
       markerPath = markerPath
     )
   }
 
   private def sliceData(
-    stream: DataStream[Row],
+    stream: DataStream[RowData],
     interval: Option[OffsetInterval],
     vocab: DatasetVocabulary
-  ): DataStream[Row] = {
-    val schema = stream.dataType.asInstanceOf[RowTypeInfo]
-    val offsetColumn = schema.getFieldIndex(vocab.offsetColumn.get)
+  ): DataStream[RowData] = {
+    val rowType =
+      stream.dataType.asInstanceOf[InternalTypeInfo[RowType]].toRowType
+    val offsetColumn = rowType.getFieldIndex(vocab.offsetColumn.get)
 
     interval match {
       case None => stream.filter(_ => false)
       case Some(iv) =>
         stream.filter(row => {
-          val offset = row.getField(offsetColumn).asInstanceOf[Long]
+          val offset = row.getLong(offsetColumn)
           offset >= iv.start && offset <= iv.end
         })
     }
@@ -441,41 +467,74 @@ class Engine(
     }
   }
 
-  private def openStream(
-    datasetName: DatasetName,
-    schemaFile: Path,
-    filesToRead: Vector[Path],
-    markerPath: Path,
+  private def openInputStream(
+    input: ExecuteQueryInput,
     prevWatermark: Option[Instant],
-    explicitWatermarks: Vector[Watermark]
-  ): DataStream[Row] = {
+    terminateWhenExhausted: Boolean,
+    exhaustedMarkerPath: Option[Path]
+  ): InputStream = {
     // TODO: Ignoring schema evolution
-    val schema = getSchemaFromFile(schemaFile)
-    logger.debug(s"Using following schema:\n$schema")
-
-    val inputFormat = new ParquetRowInputFormatEx(
-      new FlinkPath(schemaFile.getParent.toUri.getPath),
-      schema
+    // TODO: use schema from metadata
+    val parquetSchema = getSchemaFromFile(input.schemaFile)
+    logger.info(
+      "Dataset {} has parquet schema:\n{}",
+      input.datasetName,
+      parquetSchema
     )
 
-    val javaStream =
-      env.getJavaEnv.addSource(
-        new ParquetSourceFunction(
-          datasetName.toString,
-          filesToRead.map(_.toString),
-          inputFormat,
-          prevWatermark.getOrElse(Instant.MIN),
-          explicitWatermarks.map(_.eventTime),
-          markerPath.toString
-        ),
-        datasetName.toString
+    val rowType = ParquetSchemaConverterKamu.convertToRowType(parquetSchema)
+    logger.info("Converted RowType:\n{}", rowType)
+
+    val typeInfo = InternalTypeInfo.of(rowType)
+
+    val inputFormat = new ParquetColumnarRowInputFormatKamu[FileSourceSplit](
+      hadoopConfig,
+      rowType,
+      typeInfo,
+      500,
+      true,
+      true
+    )
+
+    val eventTimePos =
+      parquetSchema.getFieldIndex(input.vocab.eventTimeColumn.get)
+
+    if (eventTimePos < 0)
+      throw new Exception(
+        s"Event time column not found: ${input.vocab.eventTimeColumn.get}"
       )
 
-    new DataStream[Row](javaStream)
+    val stream = env.addSource(
+      new ParquetFilesStreamSourceFunction(
+        input.datasetName.toString,
+        input.dataPaths.map(_.toString),
+        inputFormat,
+        row => row.getTimestamp(eventTimePos, Int.MaxValue).getMillisecond,
+        prevWatermark,
+        input.explicitWatermarks.map(_.eventTime),
+        terminateWhenExhausted,
+        exhaustedMarkerPath.map(_.toString)
+      )
+    )(typeInfo)
+
+    // TODO: We often need to emit watermarks that do not originate from records
+    // WatermarkStrategy makes it impossible, so the job of timestamp extraction and watermarking
+    // is currently done by the source.
+    /*val streamWithWatermarks = stream.assignTimestampsAndWatermarks(
+      new MaxOutOfOrderWatermarkStrategy[RowData](
+        row => row.getTimestamp(eventTimePos, Int.MaxValue).getMillisecond,
+        scala.concurrent.duration.Duration.Zero
+      )
+    )*/
+
+    val streamSliced =
+      sliceData(stream, input.dataInterval, input.vocab)
+
+    InputStream(input, streamSliced, null)
   }
 
   private def getSchemaFromFile(path: Path): MessageType = {
-    logger.debug(s"Loading schema from: $path")
+    logger.debug("Loading schema from: {}", path)
     val file = HadoopInputFile.fromPath(
       new org.apache.hadoop.fs.Path(path.toUri),
       new org.apache.hadoop.conf.Configuration()
@@ -486,43 +545,7 @@ class Engine(
     schema
   }
 
-  // TODO: This env method is overridden to customize file reader behavior
-  /*private def createFileInput[T](
-    inputFormat: FileInputFormat[T],
-    typeInfo: TypeInformation[T],
-    sourceName: String,
-    filesToRead: Vector[Path],
-    monitoringMode: FileProcessingMode,
-    interval: Long,
-    markerPath: Path,
-    prevWatermark: Option[Instant],
-    explicitWatermarks: Vector[Watermark]
-  ): DataStreamSource[T] = {
-    val monitoringFunction =
-      new CustomFileMonitoringFunction[T](
-        inputFormat,
-        filesToRead.map(_.toUri.getPath).asJava,
-        monitoringMode,
-        env.getParallelism,
-        interval
-      )
-
-    val factory =
-      new CustomFileReaderOperatorFactory[T, TimestampedFileInputSplit](
-        inputFormat,
-        markerPath.toUri.getPath,
-        prevWatermark.getOrElse(Instant.MIN),
-        explicitWatermarks.map(_.eventTime).asJava
-      )
-
-    val source = env.getJavaEnv
-      .addSource(monitoringFunction, sourceName)
-      .transform("Split Reader: " + sourceName, typeInfo, factory)
-
-    new DataStreamSource(source)
-  }*/
-
-  private def loadTransform(raw: Transform): Transform.Sql = {
+  def loadTransform(raw: Transform): Transform.Sql = {
     if (raw.engine != "flink")
       throw new RuntimeException(s"Unsupported engine: ${raw.engine}")
 

@@ -1,69 +1,69 @@
 package dev.kamu.engine.flink
 
-import java.sql.Timestamp
+import org.apache.flink.api.common.eventtime.{
+  TimestampAssigner,
+  TimestampAssignerSupplier,
+  WatermarkGenerator,
+  WatermarkGeneratorSupplier,
+  WatermarkOutput,
+  WatermarkStrategy
+}
+import org.slf4j.LoggerFactory
 
-import org.apache.flink.streaming.api.functions.AssignerWithPunctuatedWatermarks
-import org.apache.flink.streaming.api.watermark.Watermark
-import org.apache.flink.types.Row
-
+import java.time.Instant
 import scala.concurrent.duration.Duration
 
-class TimestampAssigner[T](
-  extractor: T => Long
-) extends AssignerWithPunctuatedWatermarks[T] {
+class MaxOutOfOrderWatermarkGenerator[T](
+  maxOutOfOrderBy: Long
+) extends WatermarkGenerator[T] {
+  private val logger = LoggerFactory.getLogger(getClass)
+  private var maxWatermark = Long.MinValue
 
-  override def extractTimestamp(
-    element: T,
-    previousElementTimestamp: Long
-  ): Long = {
+  override def onEvent(
+    event: T,
+    eventTimestamp: Long,
+    output: WatermarkOutput
+  ): Unit = {
+    val wm = eventTimestamp - maxOutOfOrderBy
+
+    if (wm > maxWatermark) {
+      logger.info(s"Emitting watermark: ${Instant.ofEpochMilli(wm)}")
+      maxWatermark = wm
+      output.emitWatermark(
+        new org.apache.flink.api.common.eventtime.Watermark(
+          wm
+        )
+      )
+    } else {
+      logger.info(s"Ignoring watermark: ${Instant.ofEpochMilli(wm)}")
+    }
+  }
+
+  override def onPeriodicEmit(output: WatermarkOutput): Unit = {}
+}
+
+class ExtractorTimestampAssigner[T](extractor: T => Long)
+    extends TimestampAssigner[T] {
+  override def extractTimestamp(element: T, recordTimestamp: Long): Long = {
     extractor(element)
   }
-
-  override def checkAndGetNextWatermark(
-    lastElement: T,
-    extractedTimestamp: Long
-  ): Watermark = {
-    null
-  }
 }
 
-class BoundedOutOfOrderWatermark[T](
+class MaxOutOfOrderWatermarkStrategy[T](
   extractor: T => Long,
-  maxOutOfOrderness: Long
-) extends TimestampAssigner[T](extractor) {
-
-  override def checkAndGetNextWatermark(
-    lastElement: T,
-    extractedTimestamp: Long
-  ): Watermark = {
-    if (extractedTimestamp == Long.MinValue)
-      null
-    else
-      new Watermark(extractedTimestamp - maxOutOfOrderness)
-  }
-}
-
-// DOC: https://ci.apache.org/projects/flink/flink-docs-stable/dev/event_timestamp_extractors.html
-// DOC: https://stackoverflow.com/questions/55392857/why-flink-does-not-drop-late-data
-object BoundedOutOfOrderWatermark {
-  def forTuple[T <: Product](
-    pos: Int,
-    maxOutOfOrderness: Duration
-  ): BoundedOutOfOrderWatermark[T] =
-    apply(
-      _.productElement(pos).asInstanceOf[Timestamp].getTime,
-      maxOutOfOrderness
+  maxOutOfOrderBy: Duration
+) extends WatermarkStrategy[T] {
+  override def createWatermarkGenerator(
+    context: WatermarkGeneratorSupplier.Context
+  ): WatermarkGenerator[T] = {
+    new MaxOutOfOrderWatermarkGenerator[T](
+      maxOutOfOrderBy.toMillis
     )
+  }
 
-  def forRow(
-    extractor: Row => Long,
-    maxOutOfOrderness: Duration
-  ): BoundedOutOfOrderWatermark[Row] =
-    apply(extractor, maxOutOfOrderness)
-
-  def apply[T](
-    extractor: T => Long,
-    maxOutOfOrderness: Duration
-  ): BoundedOutOfOrderWatermark[T] =
-    new BoundedOutOfOrderWatermark(extractor, maxOutOfOrderness.toMillis)
+  override def createTimestampAssigner(
+    context: TimestampAssignerSupplier.Context
+  ): TimestampAssigner[T] = {
+    new ExtractorTimestampAssigner(extractor)
+  }
 }

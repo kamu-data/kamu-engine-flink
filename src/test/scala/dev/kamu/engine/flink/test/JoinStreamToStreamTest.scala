@@ -1,12 +1,8 @@
 package dev.kamu.engine.flink.test
 
 import java.sql.Timestamp
-import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
-
-import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
-import org.apache.flink.streaming.api.TimeCharacteristic
+import dev.kamu.engine.flink.MaxOutOfOrderWatermarkStrategy
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.types.Row
@@ -25,7 +21,6 @@ class JoinStreamToStreamTest
     val tEnv = StreamTableEnvironment.create(env)
 
     env.setParallelism(1)
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     val ordersData = Seq(
       (ts(1), 1, 10L),
@@ -45,22 +40,20 @@ class JoinStreamToStreamTest
     val orders = env
       .fromCollection(ordersData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, Int, Long)](
-            0,
-            duration.Duration.Zero
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, Int, Long)](
+          t => t._1.getTime,
+          scala.concurrent.duration.Duration.Zero
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'order_id, 'quantity)
 
     val shipments = env
       .fromCollection(shipmentsData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, Int, Long)](
-            0,
-            duration.Duration.Zero
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, Int, Long)](
+          t => t._1.getTime,
+          scala.concurrent.duration.Duration.Zero
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'order_id, 'num_shipped)
 
@@ -86,7 +79,7 @@ class JoinStreamToStreamTest
       )
 
     val sink = StreamSink.stringSink()
-    query.toAppendStream[Row].addSink(sink)
+    query.toDataStream[Row](classOf[Row]).addSink(sink)
     env.execute()
 
     val actual = sink.collectStr().sorted
@@ -96,7 +89,7 @@ class JoinStreamToStreamTest
       "+I[2000-01-01, 1, 10, 2000-01-01, 5]",
       "+I[2000-01-01, 2, 120, 2000-01-02, 120]",
       "+I[2000-01-05, 3, 9, null, null]",
-      "+I[2000-01-10, 4, 110, 2000-01-11, 110]",
+      "+I[2000-01-10, 4, 110, 2000-01-11, 110]"
     ).sorted
 
     expected shouldEqual actual
@@ -107,7 +100,6 @@ class JoinStreamToStreamTest
     val tEnv = StreamTableEnvironment.create(env)
 
     env.setParallelism(1)
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     val ordersData = Seq(
       (ts(1), 1, 10L),
@@ -128,22 +120,20 @@ class JoinStreamToStreamTest
     val orders = env
       .fromCollection(ordersData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, Int, Long)](
-            0,
-            duration.Duration(1, duration.DAYS)
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, Int, Long)](
+          t => t._1.getTime,
+          duration.Duration(1, duration.DAYS)
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'order_id, 'quantity)
 
     val shipments = env
       .fromCollection(shipmentsData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, Int, Long)](
-            0,
-            duration.Duration(1, duration.DAYS)
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, Int, Long)](
+          t => t._1.getTime,
+          duration.Duration(1, duration.DAYS)
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'order_id, 'num_shipped)
 
@@ -169,7 +159,7 @@ class JoinStreamToStreamTest
       )
     tEnv.createTemporaryView("OrderShipments", orderShipments)
 
-    orderShipments.toAppendStream[Row].print("orderShipments")
+    orderShipments.toDataStream[Row](classOf[Row]).print("orderShipments")
 
     val shipmentStats = tEnv.sqlQuery(
       """
@@ -187,7 +177,7 @@ class JoinStreamToStreamTest
     )
     tEnv.createTemporaryView("ShipmentStats", shipmentStats)
 
-    shipmentStats.toAppendStream[Row].print("shipmentStats")
+    shipmentStats.toDataStream[Row](classOf[Row]).print("shipmentStats")
 
     val query = tEnv.sqlQuery(
       """
@@ -198,15 +188,15 @@ class JoinStreamToStreamTest
     )
 
     val sink = StreamSink.stringSink()
-    query.toAppendStream[Row].print("query")
-    query.toAppendStream[Row].addSink(sink)
+    query.toDataStream[Row](classOf[Row]).print("query")
+    query.toDataStream[Row](classOf[Row]).addSink(sink)
     env.execute()
 
     val actual = sink.collectStr().sorted
 
     val expected = List(
       "+I[2000-01-05, 3, 1, null, null, 9, 0]",
-      "+I[2000-01-10, 4, 1, 2000-01-11, 2000-01-11, 110, 50]",
+      "+I[2000-01-10, 4, 1, 2000-01-11, 2000-01-11, 110, 50]"
     ).sorted
 
     expected shouldEqual actual

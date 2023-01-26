@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import java.sql.Timestamp
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
-import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
+import dev.kamu.engine.flink.MaxOutOfOrderWatermarkStrategy
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api._
@@ -24,7 +24,6 @@ class ProjectionTest
     val tEnv = StreamTableEnvironment.create(env)
 
     env.setParallelism(1)
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     val tickersData = Seq(
       (ts(1, 1), "A", 10L),
@@ -48,11 +47,10 @@ class ProjectionTest
     val tickers = env
       .fromCollection(tickersData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, String, Long)](
-            0,
-            duration.Duration(1, duration.DAYS)
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, String, Long)](
+          _._1.getTime,
+          duration.Duration(1, duration.DAYS)
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'symbol, 'price)
 
@@ -73,7 +71,7 @@ class ProjectionTest
 
     val sink = StreamSink.stringSink()
     //query.toAppendStream[Row].addSink(sink)
-    query.toAppendStream[Row].print()
+    query.toDataStream[Row](classOf[Row]).print()
     env.execute()
 
     val actual = sink.collectStr().sorted

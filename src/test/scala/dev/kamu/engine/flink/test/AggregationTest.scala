@@ -1,17 +1,12 @@
 package dev.kamu.engine.flink.test
 
 import java.sql.Timestamp
-import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
-
-import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
-import org.apache.flink.streaming.api.TimeCharacteristic
+import dev.kamu.engine.flink.MaxOutOfOrderWatermarkStrategy
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.bridge.scala._
 import org.apache.flink.types.Row
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
-
-import scala.concurrent.duration
 
 class AggregationTest
     extends FunSuite
@@ -24,7 +19,6 @@ class AggregationTest
     val tEnv = StreamTableEnvironment.create(env)
 
     env.setParallelism(1)
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     val tickersData = Seq(
       (ts(1, 1), "A", 10L),
@@ -48,11 +42,11 @@ class AggregationTest
     val tickers = env
       .fromCollection(tickersData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, String, Long)](
-            0,
-            duration.Duration(1, duration.DAYS)
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, String, Long)](
+          t => t._1.getTime,
+          scala.concurrent.duration
+            .Duration(1, scala.concurrent.duration.DAYS)
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'symbol, 'price)
 
@@ -72,7 +66,7 @@ class AggregationTest
       )
 
     val sink = StreamSink.stringSink()
-    query.toAppendStream[Row].addSink(sink)
+    query.toDataStream[Row](classOf[Row]).addSink(sink)
     env.execute()
 
     val actual = sink.collectStr().sorted
@@ -83,7 +77,7 @@ class AggregationTest
       "+I[2000-01-02, A, 12, 13]",
       "+I[2000-01-02, B, 20, 21]",
       "+I[2000-01-03, A, 9, 10]",
-      "+I[2000-01-03, B, 18, 19]",
+      "+I[2000-01-03, B, 18, 19]"
     ).sorted
 
     expected shouldEqual actual

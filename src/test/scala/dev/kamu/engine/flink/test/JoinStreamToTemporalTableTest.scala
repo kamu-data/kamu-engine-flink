@@ -1,10 +1,8 @@
 package dev.kamu.engine.flink.test
 
 import java.sql.Timestamp
-import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
-import dev.kamu.engine.flink.BoundedOutOfOrderWatermark
-import org.apache.flink.streaming.api.TimeCharacteristic
+import dev.kamu.engine.flink.MaxOutOfOrderWatermarkStrategy
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.bridge.scala._
@@ -24,7 +22,6 @@ class JoinStreamToTemporalTableTest
     val tEnv = StreamTableEnvironment.create(env)
 
     env.setParallelism(1)
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
     val tickersData = Seq(
       (ts(1), "A", 10L),
@@ -52,26 +49,24 @@ class JoinStreamToTemporalTableTest
     val tickers = env
       .fromCollection(tickersData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, String, Long)](
-            0,
-            duration.Duration(1, duration.DAYS)
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, String, Long)](
+          _._1.getTime,
+          duration.Duration(1, duration.DAYS)
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'symbol, 'price)
 
     val transactions = env
       .fromCollection(transactionsData)
       .assignTimestampsAndWatermarks(
-        BoundedOutOfOrderWatermark
-          .forTuple[(Timestamp, String, Long)](
-            0,
-            duration.Duration(1, duration.DAYS)
-          )
+        new MaxOutOfOrderWatermarkStrategy[(Timestamp, String, Long)](
+          _._1.getTime,
+          duration.Duration(1, duration.DAYS)
+        )
       )
       .toTable(tEnv, 'event_time.rowtime, 'symbol, 'volume)
 
-    tEnv.registerFunction(
+    tEnv.createTemporarySystemFunction(
       "Tickers",
       tickers
         .createTemporalTableFunction('event_time, 'symbol)
@@ -95,7 +90,7 @@ class JoinStreamToTemporalTableTest
       )
 
     val sink = StreamSink.stringSink()
-    query.toAppendStream[Row].addSink(sink)
+    query.toDataStream[Row](classOf[Row]).addSink(sink)
     env.execute()
 
     val actual = sink.collectStr().sorted
@@ -104,11 +99,7 @@ class JoinStreamToTemporalTableTest
       "+I[2000-01-01T00:00, A, 100, -1000]",
       "+I[2000-01-02T00:00, B, 100, -13000]",
       "+I[2000-01-05T00:00, A, -100, 900]",
-      "+I[2000-01-05T00:00, B, 100, -11000]",
-      //"2000-01-01 00:00:00.0,A,100,-1000",
-      //"2000-01-02 00:00:00.0,B,100,-13000",
-      //"2000-01-05 00:00:00.0,A,-100,900",
-      //"2000-01-05 00:00:00.0,B,100,-11000"
+      "+I[2000-01-05T00:00, B, 100, -11000]"
     ).sorted
 
     expected shouldEqual actual

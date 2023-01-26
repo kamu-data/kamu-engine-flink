@@ -6,12 +6,12 @@ import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryResponse}
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.bridge.scala._
 import org.slf4j.LoggerFactory
 
 import java.io.{PrintWriter, StringWriter}
+import java.time.ZoneId
 
 object EngineApp {
   val requestPath = Paths.get("/opt/engine/in-out/request.yaml")
@@ -24,6 +24,7 @@ object EngineApp {
       throw new RuntimeException(s"Could not find request config: $requestPath")
 
     val request = yaml.load[ExecuteQueryRequest](requestPath)
+
     def saveResponse(response: ExecuteQueryResponse): Unit = {
       yaml.save(response, responsePath)
     }
@@ -33,7 +34,6 @@ object EngineApp {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
     val tEnv = StreamTableEnvironment.create(env)
 
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
     env.setParallelism(1)
 
     // See: https://ci.apache.org/projects/flink/flink-docs-release-1.13/docs/dev/execution/execution_configuration/
@@ -42,6 +42,8 @@ object EngineApp {
     // See: https://flink.apache.org/news/2020/04/15/flink-serialization-tuning-vol-1.html#row-data-types
     env.getConfig.disableGenericTypes()
 
+    tEnv.getConfig.setLocalTimeZone(ZoneId.of("UTC"))
+
     logger.info(
       s"Processing dataset: ${request.datasetName} (${request.datasetID})"
     )
@@ -49,7 +51,8 @@ object EngineApp {
     val engine = new Engine(env, tEnv)
 
     try {
-      val response = engine.executeQueryExtended(request)
+      val response = engine.executeRequest(request)
+      logger.info(s"Processing result: ${request.datasetName}\n$response")
       saveResponse(response)
     } catch {
       case e: org.apache.flink.table.api.ValidationException =>

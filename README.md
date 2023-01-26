@@ -40,21 +40,36 @@ Example:
 SELECT
   t.event_time,
   t.symbol,
-  owned.volume as volume,
+  p.volume as volume,
   t.price as current_price,
-  owned.volume * t.price as current_value
+  p.volume * t.price as current_value
+FROM tickers as t
+JOIN portfolio FOR SYSTEM_TIME AS OF t.event_time AS p
+WHERE t.symbol = p.symbol
+```
+
+Example (Uising old `LATERAL TABLE` syntax):
+```sql
+SELECT
+  t.event_time,
+  t.symbol,
+  p.volume as volume,
+  t.price as current_price,
+  p.volume * t.price as current_value
 FROM
   tickers as t,
-  LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
-WHERE t.symbol = owned.symbol
+  LATERAL TABLE (portfolio(t.event_time)) AS p
+WHERE t.symbol = p.symbol
 ```
 
 ## Known Issues
 - Takes a long time to start up which is hurting the user experience
 - SQL parser is very sensitive to keywords and requires a lot of quoting
-- DECIMAL data type is broken in Parquet [FLINK-17804](https://issues.apache.org/jira/browse/FLINK-17804)
-  - Pull request created [flink#12768](https://github.com/apache/flink/pull/12768) and waiting for approval
-  - Using our forked version for now
+- Defaults to using deprecated and no longer supported by most libraries `int96` type for timestamps when encoding to Parquet [FLINK-25565](https://issues.apache.org/jira/browse/FLINK-25565)
+  - Using custom Parquet reader/writer for now
+- Does not support reading/writing generic data from Parquet without having a hardcoded schema
+  - We implement custom schema converter for reading
+  - We have to convert data to Avro and then to Parquet upon saving
 - Does not save watermarks in savepoints [FLINK-5601](https://issues.apache.org/jira/browse/FLINK-5601)
   - Manually saving watermarks as part of the checkpoint
 - Does not support month/quarter/year tumbling windows [FLINK-9740](https://jira.apache.org/jira/browse/FLINK-9740)
@@ -64,9 +79,15 @@ WHERE t.symbol = owned.symbol
 - Does not (easily) support resuming from savepoint programmatically
   - Have to resume from savepoint using CLI rather than in a program
 - Does not support Apache Arrow format [FLINK-10929](https://issues.apache.org/jira/browse/FLINK-10929)
-- Requires conversion to Avro to be able to save to Parquet
 - Does not support late data handling in SQL API [FLINK-XXX](https://stackoverflow.com/questions/51172965/flink-use-allowedlateness-in-flink-sql-api)
 - Does not support temporal table joins without or with compound primary key [FLINK-XXX]()
+- Joins using `FOR SYSTEM_TIME AS OF` syntax require us to manually set primary keys
+
+
+## Past Issues
+- DECIMAL data type is broken in Parquet [FLINK-17804](https://issues.apache.org/jira/browse/FLINK-17804)
+  - Pull request created [flink#12768](https://github.com/apache/flink/pull/12768) and waiting for approval
+  - Using our forked version for now
 
 
 ## Developing
