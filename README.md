@@ -66,7 +66,8 @@ WHERE t.symbol = p.symbol
 - Takes a long time to start up which is hurting the user experience
 - SQL parser is very sensitive to keywords and requires a lot of quoting
 - Defaults to using deprecated and no longer supported by most libraries `int96` type for timestamps when encoding to Parquet [FLINK-25565](https://issues.apache.org/jira/browse/FLINK-25565)
-  - Using custom Parquet reader/writer for now
+  - Using custom Parquet reader/writer for now that decodes/encodes `int64` timestamps
+- `DECIMAL` format is encoded into Parquet as `byte_array` instead of a `fixed_len_byte_array` as [prescribed by Parquet spec](https://github.com/apache/parquet-format/blob/master/LogicalTypes.md#decimal) - this results in Apache Spark failing to read values correctly
 - Does not support reading/writing generic data from Parquet without having a hardcoded schema
   - We implement custom schema converter for reading
   - We have to convert data to Avro and then to Parquet upon saving
