@@ -6,6 +6,8 @@ import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryResponse}
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
+import org.apache.flink.api.common.restartstrategy.RestartStrategies
+import org.apache.flink.runtime.state.storage.FileSystemCheckpointStorage
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.bridge.scala._
 import org.slf4j.LoggerFactory
@@ -35,6 +37,20 @@ object EngineApp {
     val tEnv = StreamTableEnvironment.create(env)
 
     env.setParallelism(1)
+
+    // We don't want checkpointing or restart attempts
+    // See: https://nightlies.apache.org/flink/flink-docs-release-1.16/docs/ops/state/task_failure_recovery/
+    env.setRestartStrategy(RestartStrategies.noRestart())
+    assert(!env.getCheckpointConfig.isCheckpointingEnabled)
+
+    // Checkpointing is disabled, but same mechanism is used for savepoints, so we configure it to tolerate large state
+    // See: https://nightlies.apache.org/flink/flink-docs-release-1.16/docs/ops/state/checkpoints/
+    env.getCheckpointConfig
+      .setCheckpointStorage(
+        new FileSystemCheckpointStorage(
+          "file:///opt/engine/checkpoints/"
+        )
+      )
 
     // See: https://ci.apache.org/projects/flink/flink-docs-release-1.13/docs/dev/execution/execution_configuration/
     env.getConfig.enableObjectReuse()

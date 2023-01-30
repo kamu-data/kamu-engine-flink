@@ -353,7 +353,7 @@ class Engine(
         .stopWithSavepoint(
           false,
           checkpointDir.toUri.toString,
-          SavepointFormatType.DEFAULT
+          SavepointFormatType.CANONICAL
         )
         .join()
     } finally {
