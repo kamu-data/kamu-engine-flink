@@ -1,5 +1,5 @@
 [package]
-name = "kamu-engine-spark-adapter"
+name = "kamu-engine-flink-adapter"
 version = "0.1.0"
 edition = "2021"
 

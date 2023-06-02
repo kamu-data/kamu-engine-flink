@@ -1,7 +1,7 @@
 FLINK_IMAGE_VERSION = 1.16.0-scala_2.12-java8
 FLINK_IMAGE = flink:$(FLINK_IMAGE_VERSION)
 ENGINE_IMAGE_VERSION = 0.15.1-flink_$(FLINK_IMAGE_VERSION)
-ENGINE_IMAGE = kamudata/engine-flink:$(ENGINE_IMAGE_VERSION)
+ENGINE_IMAGE = ghcr.io/kamu-data/engine-flink:$(ENGINE_IMAGE_VERSION)
 
 
 engine-assembly:
@@ -10,7 +10,7 @@ engine-assembly:
 
 adapter-assembly:
 	cd adapter && \
-	RUSTFLAGS="" cross build --target x86_64-unknown-linux-gnu --release
+	RUSTFLAGS="" cross build --target x86_64-unknown-linux-musl --release
 
 
 image-build:

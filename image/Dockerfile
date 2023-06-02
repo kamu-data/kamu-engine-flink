@@ -16,7 +16,7 @@ ADD target/scala-2.12/engine.flink.jar /opt/engine/bin/engine.flink.jar
 
 
 # Adapter
-COPY adapter/target/x86_64-unknown-linux-gnu/release/kamu-engine-spark-adapter /opt/engine/bin/adapter
+COPY adapter/target/x86_64-unknown-linux-musl/release/kamu-engine-flink-adapter /opt/engine/bin/adapter
 
 
 EXPOSE 2884/tcp
