@@ -1,16 +1,7 @@
 package dev.kamu.engine.flink.test
 
 import better.files.File
-import dev.kamu.core.manifests.{
-  DatasetID,
-  DatasetName,
-  DatasetVocabulary,
-  ExecuteQueryInput,
-  ExecuteQueryRequest,
-  OffsetInterval,
-  Transform,
-  Watermark
-}
+import dev.kamu.core.manifests._
 import dev.kamu.core.utils.Temp
 import dev.kamu.engine.flink.Engine
 import org.apache.flink.streaming.api.scala._
@@ -61,10 +52,10 @@ class FunctionalAggregationTest
 
       engine.executeRequest(
         ExecuteQueryRequest(
-          datasetID = DatasetID(""),
-          datasetName = DatasetName("output"),
+          datasetId = DatasetId("did:odf:abcdef"),
+          datasetAlias = DatasetAlias("output"),
           systemTime = ts(10).toInstant,
-          offset = 0,
+          nextOffset = 0,
           vocab = DatasetVocabulary(),
           transform = Transform.Sql(
             engine = "flink",
@@ -82,12 +73,13 @@ class FunctionalAggregationTest
             queries = None,
             temporalTables = None
           ),
-          inputs = Vector(
-            ExecuteQueryInput(
-              datasetID = DatasetID(""),
-              datasetName = DatasetName("tickers"),
+          queryInputs = Vector(
+            ExecuteQueryRequestInput(
+              datasetId = DatasetId("did:odf:abcdef"),
+              datasetAlias = DatasetAlias("tickers"),
+              queryAlias = "tickers",
               vocab = DatasetVocabulary().withDefaults(),
-              dataInterval = Some(OffsetInterval(start = 0, end = 11)),
+              offsetInterval = Some(OffsetInterval(start = 0, end = 11)),
               dataPaths = Vector(tickersDataPath),
               schemaFile = tickersDataPath,
               explicitWatermarks =
@@ -96,7 +88,7 @@ class FunctionalAggregationTest
           ),
           prevCheckpointPath = None,
           newCheckpointPath = checkpointPath,
-          outDataPath = outputDataPath
+          newDataPath = outputDataPath
         )
       )
 

@@ -27,11 +27,10 @@ trait TimeHelpers {
       )
 
     request.copy(
-      inputs = request.inputs.map(
+      queryInputs = request.queryInputs.map(
         i =>
           i.copy(
-            explicitWatermarks =
-              wmsVec.getOrElse(i.datasetName.toString, Vector.empty)
+            explicitWatermarks = wmsVec.getOrElse(i.queryAlias, Vector.empty)
           )
       )
     )
@@ -41,8 +40,7 @@ trait TimeHelpers {
     DatasetLayout(
       metadataDir = workspaceDir.resolve("meta", datasetName),
       dataDir = workspaceDir.resolve("data", datasetName),
-      checkpointsDir = workspaceDir.resolve("checkpoints", datasetName),
-      cacheDir = workspaceDir.resolve("cache", datasetName)
+      checkpointsDir = workspaceDir.resolve("checkpoints", datasetName)
     )
   }
 

@@ -24,22 +24,22 @@ class EngineMapTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: out
+           |datasetId: "did:odf:blah"
+           |datasetAlias: out
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
-           |  query: >
+           |  query: |
            |    SELECT
            |      event_time,
            |      symbol,
            |      price * 10 as price
            |    FROM `in`
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab: {}
            |""".stripMargin
       )
@@ -60,18 +60,18 @@ class EngineMapTest
 
         val result = engineRunner.run(
           withWatermarks(request, Map("in" -> ts(4)))
-            .copy(systemTime = ts(10).toInstant, offset = 0),
+            .copy(systemTime = ts(10).toInstant, nextOffset = 0),
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 3
         )
-        result.outputWatermark.get shouldEqual ts(4).toInstant
+        result.newWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
-          .read[Ticker](request.outDataPath)
+          .read[Ticker](request.newDataPath)
           .sortBy(_.offset)
 
         actual shouldEqual List(
@@ -113,18 +113,18 @@ class EngineMapTest
 
         val result = engineRunner.run(
           withWatermarks(request, Map("in" -> ts(8)))
-            .copy(systemTime = ts(20).toInstant, offset = 4),
+            .copy(systemTime = ts(20).toInstant, nextOffset = 4),
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 4,
           end = 7
         )
-        result.outputWatermark.get shouldEqual ts(8).toInstant
+        result.newWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
-          .read[Ticker](request.outDataPath)
+          .read[Ticker](request.newDataPath)
           .sortBy(_.offset)
 
         actual shouldEqual List(

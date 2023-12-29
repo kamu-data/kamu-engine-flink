@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use tonic::transport::Server;
 
-use kamu_engine_spark_adapter::adapter::FlinkODFAdapter;
-use kamu_engine_spark_adapter::grpc::EngineGRPCImpl;
+use kamu_engine_flink_adapter::adapter::FlinkODFAdapter;
+use kamu_engine_flink_adapter::grpc::EngineGRPCImpl;
 use opendatafabric::engine::grpc_generated::engine_server::EngineServer;
 
 /////////////////////////////////////////////////////////////////////////////////////////

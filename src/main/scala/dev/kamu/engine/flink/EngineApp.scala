@@ -61,14 +61,14 @@ object EngineApp {
     tEnv.getConfig.setLocalTimeZone(ZoneId.of("UTC"))
 
     logger.info(
-      s"Processing dataset: ${request.datasetName} (${request.datasetID})"
+      s"Processing dataset: ${request.datasetAlias} (${request.datasetId})"
     )
 
     val engine = new Engine(env, tEnv)
 
     try {
       val response = engine.executeRequest(request)
-      logger.info(s"Processing result: ${request.datasetName}\n$response")
+      logger.info(s"Processing result: ${request.datasetAlias}\n$response")
       saveResponse(response)
     } catch {
       case e: org.apache.flink.table.api.ValidationException =>
@@ -84,7 +84,7 @@ object EngineApp {
     }
 
     logger.info(
-      s"Done processing dataset: ${request.datasetName} (${request.datasetID})"
+      s"Done processing dataset: ${request.datasetAlias} (${request.datasetId})"
     )
 
     logger.info("Finished")

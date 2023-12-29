@@ -5,24 +5,24 @@ edition = "2021"
 
 [dependencies]
 # Kamu
-opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "master" }
-# opendatafabric = { path = "../../kamu-cli/opendatafabric" }
+# opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.120.1" }
+opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "feature/breaking-changes" }
 
 # RPC
-libc = "*"
-prost = "*"
-tonic = "*"
-tokio = { version = "*", features = ["macros", "rt-multi-thread", "process"] }
-tokio-stream = "*"
+libc = "0.2"
+prost = "0.12"
+tonic = "0.10"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "process"] }
+tokio-stream = "0.1"
 
 # Serialization
-serde = { version = "*", features = ["derive"] }
-serde_with = "*"
-serde_yaml = "*"
-tar = "*"  # Checkpoitnt packing
+serde = { version = "1", features = ["derive"] }
+serde_with = "3"
+serde_yaml = "0.9"
+tar = "0.4"  # Checkpoitnt packing
 
 # Tracing / logging / telemetry
-tracing = "*"  
-tracing-subscriber = { version = "*", features = ["env-filter"] }
-tracing-log = "*"
-tracing-bunyan-formatter = "*"
+tracing = "0.1"  
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-log = "0.2"
+tracing-bunyan-formatter = "0.3"

@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import java.nio.file.Path
 import com.sksamuel.avro4s.{Decoder, Encoder, SchemaFor}
 import dev.kamu.core.manifests._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryInput}
+import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryRequestInput}
 import dev.kamu.core.utils.fs._
 
 import scala.util.Random
@@ -24,7 +24,7 @@ trait EngineHelpers {
     prevCheckpointPath: Option[Path] = None
   ): ExecuteQueryRequest = {
     request.copy(
-      outDataPath = layout.dataDir.resolve(randomDataFileName()),
+      newDataPath = layout.dataDir.resolve(randomDataFileName()),
       prevCheckpointPath = prevCheckpointPath,
       newCheckpointPath = layout.checkpointsDir
         .resolve(Random.alphanumeric.take(10).mkString(""))
@@ -33,13 +33,13 @@ trait EngineHelpers {
 
   def withInputData[T <: HasOffset: Encoder: Decoder](
     request: ExecuteQueryRequest,
-    datasetName: String,
+    queryAlias: String,
     dataDir: Path,
     data: Seq[T]
   )(
     implicit schemaFor: SchemaFor[T]
   ): ExecuteQueryRequest = {
-    val dataInterval = OffsetInterval(
+    val offsetInterval = OffsetInterval(
       start = data.map(_.getOffset).min,
       end = data.map(_.getOffset).max
     )
@@ -50,14 +50,15 @@ trait EngineHelpers {
       data
     )
 
-    request.inputs.indexWhere(_.datasetName.toString == datasetName) match {
+    request.queryInputs.indexWhere(_.queryAlias == queryAlias) match {
       case -1 =>
         request.copy(
-          inputs = request.inputs ++ Vector(
-            ExecuteQueryInput(
-              datasetID = DatasetID("did:odf:" + datasetName),
-              datasetName = DatasetName(datasetName),
-              dataInterval = Some(dataInterval),
+          queryInputs = request.queryInputs ++ Vector(
+            ExecuteQueryRequestInput(
+              datasetId = DatasetId("did:odf:" + queryAlias),
+              datasetAlias = DatasetAlias(queryAlias),
+              queryAlias = queryAlias,
+              offsetInterval = Some(offsetInterval),
               schemaFile = inputPath,
               dataPaths = Vector(inputPath),
               explicitWatermarks = Vector.empty,
@@ -66,14 +67,14 @@ trait EngineHelpers {
           )
         )
       case i =>
-        val input = request.inputs(i)
+        val input = request.queryInputs(i)
         val newInput =
           input.copy(
             dataPaths = input.dataPaths ++ Vector(inputPath),
-            dataInterval =
-              Some(input.dataInterval.get.copy(end = dataInterval.end))
+            offsetInterval =
+              Some(input.offsetInterval.get.copy(end = offsetInterval.end))
           )
-        request.copy(inputs = request.inputs.updated(i, newInput))
+        request.copy(queryInputs = request.queryInputs.updated(i, newInput))
     }
   }
 

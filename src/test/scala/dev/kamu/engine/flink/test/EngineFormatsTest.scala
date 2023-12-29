@@ -64,22 +64,22 @@ class EngineFormatsTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: out
+           |datasetId: "did:odf:blah"
+           |datasetAlias: out
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
-           |  query: >
+           |  query: |
            |    SELECT
            |      event_time,
            |      TRY_CAST(`value` as DECIMAL(13,4)) as decimal_13_4,
            |      TRY_CAST(`value` as DECIMAL(38,18)) as decimal_38_18
            |    FROM `in`
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab: {}
            |""".stripMargin
       )
@@ -113,7 +113,7 @@ class EngineFormatsTest
         tempDir
       )
 
-      val schema = ParquetHelpers.getSchemaFromFile(request.outDataPath)
+      val schema = ParquetHelpers.getSchemaFromFile(request.newDataPath)
       schema.toString shouldEqual
         """message org.apache.flink.avro.generated.record {
           |  required int64 offset;
@@ -125,7 +125,7 @@ class EngineFormatsTest
           |""".stripMargin
 
       val actual = ParquetHelpers
-        .read[WriteResult](request.outDataPath)
+        .read[WriteResult](request.newDataPath)
         .sortBy(i => i.event_time.getTime)
 
       actual shouldEqual List(
@@ -166,18 +166,18 @@ class EngineFormatsTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: out
+           |datasetId: "did:odf:blah"
+           |datasetAlias: out
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
-           |  query: >
+           |  query: |
            |    SELECT event_time, cast(`decimal` as string) as `decimal` FROM `in`
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab: {}
            |""".stripMargin
       )
@@ -202,7 +202,7 @@ class EngineFormatsTest
       )
 
       val actual = ParquetHelpers
-        .read[ReadOutput](request.outDataPath)
+        .read[ReadOutput](request.newDataPath)
         .sortBy(i => i.event_time.getTime)
 
       actual shouldEqual List(

@@ -68,14 +68,14 @@ class EngineJoinStreamToStreamTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: shipped_orders
+           |datasetId: "did:odf:blah"
+           |datasetAlias: shipped_orders
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
-           |  query: >
+           |  query: |
            |    SELECT
            |      o.event_time as order_time,
            |      o.order_id,
@@ -88,9 +88,9 @@ class EngineJoinStreamToStreamTest
            |    ON
            |      o.order_id = s.order_id
            |      AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab:
            |  eventTimeColumn: order_time
            |""".stripMargin
@@ -123,17 +123,17 @@ class EngineJoinStreamToStreamTest
 
         val result = engineRunner.run(
           withWatermarks(request, Map("orders" -> ts(5), "shipments" -> ts(2)))
-            .copy(systemTime = ts(10).toInstant, offset = 0),
+            .copy(systemTime = ts(10).toInstant, nextOffset = 0),
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 2
         )
 
         val actual = ParquetHelpers
-          .read[ShippedOrder](request.outDataPath)
+          .read[ShippedOrder](request.newDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -175,18 +175,18 @@ class EngineJoinStreamToStreamTest
           withWatermarks(
             request,
             Map("orders" -> ts(10), "shipments" -> ts(11))
-          ).copy(systemTime = ts(20).toInstant, offset = 3),
+          ).copy(systemTime = ts(20).toInstant, nextOffset = 3),
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 3,
           end = 4
         )
-        result.outputWatermark.get shouldEqual ts(8).toInstant
+        result.newWatermark.get shouldEqual ts(8).toInstant
 
         val actual = ParquetHelpers
-          .read[ShippedOrder](request.outDataPath)
+          .read[ShippedOrder](request.newDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -207,16 +207,16 @@ class EngineJoinStreamToStreamTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: late_orders
+           |datasetId: "did:odf:blah"
+           |datasetAlias: late_orders
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
            |  queries:
            |  - alias: order_shipments
-           |    query: >
+           |    query: |
            |      SELECT
            |        o.event_time as order_time,
            |        o.order_id,
@@ -230,7 +230,7 @@ class EngineJoinStreamToStreamTest
            |        o.order_id = s.order_id
            |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
            |  - alias: shipment_stats
-           |    query: >
+           |    query: |
            |      SELECT
            |        TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
            |        order_id,
@@ -241,14 +241,13 @@ class EngineJoinStreamToStreamTest
            |        sum(shipped_quantity) as shipped_quantity_total
            |      FROM order_shipments
            |      GROUP BY TUMBLE(order_time, INTERVAL '1' DAY), order_id
-           |  - alias: late_orders
-           |    query: >
+           |  - query: |
            |      SELECT *
            |      FROM shipment_stats
            |      WHERE order_quantity <> shipped_quantity_total
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab:
            |  eventTimeColumn: order_time
            |""".stripMargin
@@ -289,18 +288,18 @@ class EngineJoinStreamToStreamTest
           withWatermarks(
             request,
             Map("orders" -> ts(15), "shipments" -> ts(16))
-          ).copy(systemTime = ts(20).toInstant, offset = 0),
+          ).copy(systemTime = ts(20).toInstant, nextOffset = 0),
           tempDir
         )
 
-        result.outputWatermark.get shouldEqual ts(13).toInstant
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newWatermark.get shouldEqual ts(13).toInstant
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 1
         )
 
         val actual = ParquetHelpers
-          .read[ShipmentStats](request.outDataPath)
+          .read[ShipmentStats](request.newDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(
@@ -330,16 +329,16 @@ class EngineJoinStreamToStreamTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: late_orders
+           |datasetId: "did:odf:blah"
+           |datasetAlias: late_orders
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
            |  queries:
            |  - alias: order_shipments
-           |    query: >
+           |    query: |
            |      SELECT
            |        o.event_time as order_time,
            |        o.order_id,
@@ -353,7 +352,7 @@ class EngineJoinStreamToStreamTest
            |        o.order_id = s.order_id
            |        AND s.event_time BETWEEN o.event_time AND o.event_time + INTERVAL '2' DAY
            |  - alias: shipment_stats
-           |    query: >
+           |    query: |
            |      SELECT
            |        TUMBLE_START(order_time, INTERVAL '1' DAY) as order_time,
            |        order_id,
@@ -364,14 +363,13 @@ class EngineJoinStreamToStreamTest
            |        sum(shipped_quantity) as shipped_quantity_total
            |      FROM order_shipments
            |      GROUP BY TUMBLE(order_time, INTERVAL '1' DAY), order_id
-           |  - alias: late_orders
-           |    query: >
+           |  - query: |
            |      SELECT *
            |      FROM shipment_stats
            |      WHERE order_quantity <> shipped_quantity_total
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab:
            |  eventTimeColumn: order_time
            |""".stripMargin
@@ -410,18 +408,18 @@ class EngineJoinStreamToStreamTest
           withWatermarks(
             request,
             Map("orders" -> ts(13), "shipments" -> ts(13))
-          ).copy(systemTime = ts(20).toInstant, offset = 0),
+          ).copy(systemTime = ts(20).toInstant, nextOffset = 0),
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 1
         )
-        result.outputWatermark.get shouldEqual ts(11).toInstant
+        result.newWatermark.get shouldEqual ts(11).toInstant
 
         val actual = ParquetHelpers
-          .read[ShipmentStats](request.outDataPath)
+          .read[ShipmentStats](request.newDataPath)
           .sortBy(i => (i.order_time.getTime, i.order_id))
 
         actual shouldEqual List(

@@ -47,18 +47,18 @@ class EngineJoinStreamToTemporalTableTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: stocks.current-value
+           |datasetId: "did:odf:blah"
+           |datasetAlias: stocks.current-value
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
            |  temporalTables:
            |  - name: stocks.owned
            |    primaryKey:
            |    - symbol
-           |  query: >
+           |  query: |
            |    SELECT
            |      t.event_time,
            |      t.symbol,
@@ -69,9 +69,9 @@ class EngineJoinStreamToTemporalTableTest
            |      tickers as t,
            |      LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
            |    WHERE t.symbol = owned.symbol
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab: {}
            |""".stripMargin
       )
@@ -113,14 +113,14 @@ class EngineJoinStreamToTemporalTableTest
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 2
         )
-        result.outputWatermark.get shouldEqual ts(3).toInstant
+        result.newWatermark.get shouldEqual ts(3).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](request.outDataPath)
+          .read[StocksOwnedWithValue](request.newDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -163,18 +163,18 @@ class EngineJoinStreamToTemporalTableTest
           withWatermarks(
             request,
             Map("tickers" -> ts(5), "stocks.owned" -> ts(4))
-          ).copy(systemTime = ts(20).toInstant, offset = 3),
+          ).copy(systemTime = ts(20).toInstant, nextOffset = 3),
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 3,
           end = 4
         )
-        result.outputWatermark.get shouldEqual ts(4).toInstant
+        result.newWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](request.outDataPath)
+          .read[StocksOwnedWithValue](request.newDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -195,18 +195,18 @@ class EngineJoinStreamToTemporalTableTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: stocks.current-value
+           |datasetId: "did:odf:blah"
+           |datasetAlias: stocks.current-value
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
            |  temporalTables:
            |  - name: stocks.owned
            |    primaryKey:
            |    - symbol
-           |  query: >
+           |  query: |
            |    SELECT
            |      t.event_time,
            |      t.symbol,
@@ -217,9 +217,9 @@ class EngineJoinStreamToTemporalTableTest
            |      tickers as t,
            |      LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
            |    WHERE t.symbol = owned.symbol
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab: {}
            |""".stripMargin
       )
@@ -257,14 +257,14 @@ class EngineJoinStreamToTemporalTableTest
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 2
         )
-        result.outputWatermark.get shouldEqual ts(5).toInstant
+        result.newWatermark.get shouldEqual ts(5).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](request.outDataPath)
+          .read[StocksOwnedWithValue](request.newDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -286,18 +286,18 @@ class EngineJoinStreamToTemporalTableTest
 
       val requestTemplate = yaml.load[ExecuteQueryRequest](
         s"""
-           |datasetID: "did:odf:blah"
-           |datasetName: stocks.current-value
+           |datasetId: "did:odf:blah"
+           |datasetAlias: stocks.current-value
            |systemTime: "2020-01-01T00:00:00Z"
-           |offset: 0
+           |nextOffset: 0
            |transform:
-           |  kind: sql
+           |  kind: Sql
            |  engine: flink
            |  temporalTables:
            |  - name: stocks.owned
            |    primaryKey:
            |    - symbol
-           |  query: >
+           |  query: |
            |    SELECT
            |      t.event_time,
            |      t.symbol,
@@ -307,9 +307,9 @@ class EngineJoinStreamToTemporalTableTest
            |    FROM `tickers` as t
            |    JOIN `stocks.owned` FOR SYSTEM_TIME AS OF t.event_time as owned
            |    ON t.symbol = owned.symbol
-           |inputs: []
+           |queryInputs: []
            |newCheckpointPath: ""
-           |outDataPath: ""
+           |newDataPath: ""
            |vocab: {}
            |""".stripMargin
       )
@@ -351,14 +351,14 @@ class EngineJoinStreamToTemporalTableTest
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 0,
           end = 2
         )
-        result.outputWatermark.get shouldEqual ts(3).toInstant
+        result.newWatermark.get shouldEqual ts(3).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](request.outDataPath)
+          .read[StocksOwnedWithValue](request.newDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
@@ -401,18 +401,18 @@ class EngineJoinStreamToTemporalTableTest
           withWatermarks(
             request,
             Map("tickers" -> ts(5), "stocks.owned" -> ts(4))
-          ).copy(systemTime = ts(20).toInstant, offset = 3),
+          ).copy(systemTime = ts(20).toInstant, nextOffset = 3),
           tempDir
         )
 
-        result.dataInterval.get shouldEqual OffsetInterval(
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
           start = 3,
           end = 4
         )
-        result.outputWatermark.get shouldEqual ts(4).toInstant
+        result.newWatermark.get shouldEqual ts(4).toInstant
 
         val actual = ParquetHelpers
-          .read[StocksOwnedWithValue](request.outDataPath)
+          .read[StocksOwnedWithValue](request.newDataPath)
           .sortBy(i => (i.event_time.getTime, i.symbol))
 
         actual shouldEqual List(
