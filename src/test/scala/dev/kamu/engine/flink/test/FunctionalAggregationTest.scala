@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import better.files.File
 import dev.kamu.core.manifests._
 import dev.kamu.core.utils.Temp
-import dev.kamu.engine.flink.Engine
+import dev.kamu.engine.flink.TransformEngine
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api._
 import org.apache.flink.table.api.bridge.scala._
@@ -25,7 +25,7 @@ class FunctionalAggregationTest
 
       env.setParallelism(1)
 
-      val engine = new Engine(env, tEnv)
+      val engine = new TransformEngine(env, tEnv)
 
       val tickersDataPath = tempDir.resolve("tickers")
       ParquetHelpers.write(
@@ -50,18 +50,21 @@ class FunctionalAggregationTest
       File(checkpointPath).createDirectories()
       val outputDataPath = tempDir.resolve("output")
 
-      engine.executeRequest(
-        ExecuteQueryRequest(
+      engine.executeTransform(
+        TransformRequest(
           datasetId = DatasetId("did:odf:abcdef"),
           datasetAlias = DatasetAlias("output"),
           systemTime = ts(10).toInstant,
           nextOffset = 0,
-          vocab = DatasetVocabulary(),
+          vocab = DatasetVocabulary.default(),
           transform = Transform.Sql(
             engine = "flink",
             version = None,
-            query =
-              Some("""
+            queries = Some(
+              Vector(
+                SqlQueryStep(
+                  None,
+                  """
                   |SELECT
                   | TUMBLE_START(event_time, INTERVAL '1' DAY) as event_time,
                   | symbol as symbol,
@@ -69,16 +72,19 @@ class FunctionalAggregationTest
                   | max(price) as `max`
                   |FROM `tickers`
                   |GROUP BY TUMBLE(event_time, INTERVAL '1' DAY), symbol
-                  |""".stripMargin),
-            queries = None,
+                  |""".stripMargin
+                )
+              )
+            ),
+            query = None,
             temporalTables = None
           ),
           queryInputs = Vector(
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:abcdef"),
               datasetAlias = DatasetAlias("tickers"),
               queryAlias = "tickers",
-              vocab = DatasetVocabulary().withDefaults(),
+              vocab = DatasetVocabulary.default(),
               offsetInterval = Some(OffsetInterval(start = 0, end = 11)),
               dataPaths = Vector(tickersDataPath),
               schemaFile = tickersDataPath,

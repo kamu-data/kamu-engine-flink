@@ -7,7 +7,7 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.ExecuteQueryRequest
+import dev.kamu.core.manifests.TransformRequest
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -62,7 +62,7 @@ class EngineFormatsTest
       val inputLayout = tempLayout(tempDir, "in")
       val outputLayout = tempLayout(tempDir, "out")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: out
@@ -80,7 +80,10 @@ class EngineFormatsTest
            |queryInputs: []
            |newCheckpointPath: ""
            |newDataPath: ""
-           |vocab: {}
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
            |""".stripMargin
       )
 
@@ -107,7 +110,7 @@ class EngineFormatsTest
         )
       )
 
-      engineRunner.run(
+      engineRunner.executeTransform(
         withWatermarks(request, Map("in" -> ts(3, 2)))
           .copy(systemTime = ts(10).toInstant),
         tempDir
@@ -164,7 +167,7 @@ class EngineFormatsTest
       val inputLayout = tempLayout(tempDir, "in")
       val outputLayout = tempLayout(tempDir, "out")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: out
@@ -178,7 +181,10 @@ class EngineFormatsTest
            |queryInputs: []
            |newCheckpointPath: ""
            |newDataPath: ""
-           |vocab: {}
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
            |""".stripMargin
       )
 
@@ -195,7 +201,7 @@ class EngineFormatsTest
         )
       )
 
-      engineRunner.run(
+      engineRunner.executeTransform(
         withWatermarks(request, Map("in" -> ts(3, 2)))
           .copy(systemTime = ts(10).toInstant),
         tempDir

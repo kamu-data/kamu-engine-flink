@@ -5,7 +5,7 @@ import java.sql.Timestamp
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, OffsetInterval}
+import dev.kamu.core.manifests.{TransformRequest, OffsetInterval}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -66,7 +66,7 @@ class EngineJoinStreamToStreamTest
       val shipmentsLayout = tempLayout(tempDir, "shipments")
       val shippedOrdersLayout = tempLayout(tempDir, "shipped_orders")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: shipped_orders
@@ -92,6 +92,8 @@ class EngineJoinStreamToStreamTest
            |newCheckpointPath: ""
            |newDataPath: ""
            |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
            |  eventTimeColumn: order_time
            |""".stripMargin
       )
@@ -121,7 +123,7 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("orders" -> ts(5), "shipments" -> ts(2)))
             .copy(systemTime = ts(10).toInstant, nextOffset = 0),
           tempDir
@@ -171,7 +173,7 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("orders" -> ts(10), "shipments" -> ts(11))
@@ -205,7 +207,7 @@ class EngineJoinStreamToStreamTest
       val shipmentsLayout = tempLayout(tempDir, "shipments")
       val lateOrdersLayout = tempLayout(tempDir, "late_orders")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: late_orders
@@ -249,6 +251,8 @@ class EngineJoinStreamToStreamTest
            |newCheckpointPath: ""
            |newDataPath: ""
            |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
            |  eventTimeColumn: order_time
            |""".stripMargin
       )
@@ -284,7 +288,7 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("orders" -> ts(15), "shipments" -> ts(16))
@@ -327,7 +331,7 @@ class EngineJoinStreamToStreamTest
       val shipmentsLayout = tempLayout(tempDir, "shipments")
       val lateOrdersLayout = tempLayout(tempDir, "late_orders")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: late_orders
@@ -371,6 +375,8 @@ class EngineJoinStreamToStreamTest
            |newCheckpointPath: ""
            |newDataPath: ""
            |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
            |  eventTimeColumn: order_time
            |""".stripMargin
       )
@@ -404,7 +410,7 @@ class EngineJoinStreamToStreamTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("orders" -> ts(13), "shipments" -> ts(13))

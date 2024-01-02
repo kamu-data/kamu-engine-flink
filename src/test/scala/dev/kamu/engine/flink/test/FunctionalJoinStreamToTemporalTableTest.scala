@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import better.files.File
 import dev.kamu.core.manifests._
 import dev.kamu.core.utils.Temp
-import dev.kamu.engine.flink.Engine
+import dev.kamu.engine.flink.TransformEngine
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.bridge.scala._
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -24,7 +24,7 @@ class FunctionalJoinStreamToTemporalTableTest
 
       env.setParallelism(1)
 
-      val engine = new Engine(env, tEnv)
+      val engine = new TransformEngine(env, tEnv)
 
       val tickersDataPath = tempDir.resolve("tickers")
       ParquetHelpers.write(
@@ -54,18 +54,21 @@ class FunctionalJoinStreamToTemporalTableTest
       File(checkpointPath).createDirectories()
       val outputDataPath = tempDir.resolve("output")
 
-      val response = engine.executeRequest(
-        ExecuteQueryRequest(
+      val response = engine.executeTransform(
+        TransformRequest(
           datasetId = DatasetId("did:odf:abcdef"),
           datasetAlias = DatasetAlias("output"),
           systemTime = ts(10).toInstant,
           nextOffset = 0,
-          vocab = DatasetVocabulary(),
+          vocab = DatasetVocabulary.default(),
           transform = Transform.Sql(
             engine = "flink",
             version = None,
-            query =
-              Some("""
+            queries = Some(
+              Vector(
+                SqlQueryStep(
+                  None,
+                  """
                   |SELECT
                   |  t.event_time,
                   |  t.symbol,
@@ -76,8 +79,11 @@ class FunctionalJoinStreamToTemporalTableTest
                   |  tickers as t,
                   |  LATERAL TABLE (`stocks.owned`(t.event_time)) AS owned
                   |WHERE t.symbol = owned.symbol
-                  |""".stripMargin),
-            queries = None,
+                  |""".stripMargin
+                )
+              )
+            ),
+            query = None,
             temporalTables = Some(
               Vector(
                 TemporalTable(
@@ -88,22 +94,22 @@ class FunctionalJoinStreamToTemporalTableTest
             )
           ),
           queryInputs = Vector(
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:abcdef"),
               datasetAlias = DatasetAlias("tickers"),
               queryAlias = "tickers",
-              vocab = DatasetVocabulary().withDefaults(),
+              vocab = DatasetVocabulary.default(),
               offsetInterval = Some(OffsetInterval(start = 0, end = 7)),
               dataPaths = Vector(tickersDataPath),
               schemaFile = tickersDataPath,
               explicitWatermarks =
                 Vector(Watermark(ts(10).toInstant, ts(4).toInstant))
             ),
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:abcdef"),
               datasetAlias = DatasetAlias("stocks.owned"),
               queryAlias = "stocks.owned",
-              vocab = DatasetVocabulary().withDefaults(),
+              vocab = DatasetVocabulary.default(),
               offsetInterval = Some(OffsetInterval(start = 0, end = 1)),
               dataPaths = Vector(stocksDataPath),
               schemaFile = stocksDataPath,
@@ -118,7 +124,7 @@ class FunctionalJoinStreamToTemporalTableTest
       )
 
       response
-        .asInstanceOf[ExecuteQueryResponse.Success]
+        .asInstanceOf[TransformResponse.Success]
         .newWatermark shouldEqual Some(ts(3).toInstant)
 
       val actual = ParquetHelpers
@@ -141,7 +147,7 @@ class FunctionalJoinStreamToTemporalTableTest
 
       env.setParallelism(1)
 
-      val engine = new Engine(env, tEnv)
+      val engine = new TransformEngine(env, tEnv)
 
       val tickersDataPath = tempDir.resolve("tickers")
       ParquetHelpers.write(
@@ -171,30 +177,35 @@ class FunctionalJoinStreamToTemporalTableTest
       File(checkpointPath).createDirectories()
       val outputDataPath = tempDir.resolve("output")
 
-      val response = engine.executeRequest(
-        ExecuteQueryRequest(
+      val response = engine.executeTransform(
+        TransformRequest(
           datasetId = DatasetId("did:odf:abcdef"),
           datasetAlias = DatasetAlias("output"),
           systemTime = ts(10).toInstant,
           nextOffset = 0,
-          vocab = DatasetVocabulary(),
+          vocab = DatasetVocabulary.default(),
           transform = Transform.Sql(
             engine = "flink",
             version = None,
-            query = Some(
-              """
-                |SELECT
-                |  t.event_time,
-                |  t.symbol,
-                |  owned.volume as volume,
-                |  t.price as current_price,
-                |  owned.volume * t.price as current_value
-                |FROM `tickers` as t
-                |JOIN `stocks.owned` FOR SYSTEM_TIME AS OF t.event_time as owned
-                |ON t.symbol = owned.symbol
-                |""".stripMargin
+            queries = Some(
+              Vector(
+                SqlQueryStep(
+                  None,
+                  """
+                  |SELECT
+                  |  t.event_time,
+                  |  t.symbol,
+                  |  owned.volume as volume,
+                  |  t.price as current_price,
+                  |  owned.volume * t.price as current_value
+                  |FROM `tickers` as t
+                  |JOIN `stocks.owned` FOR SYSTEM_TIME AS OF t.event_time as owned
+                  |ON t.symbol = owned.symbol
+                  |""".stripMargin
+                )
+              )
             ),
-            queries = None,
+            query = None,
             temporalTables = Some(
               Vector(
                 TemporalTable(
@@ -205,22 +216,22 @@ class FunctionalJoinStreamToTemporalTableTest
             )
           ),
           queryInputs = Vector(
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:abcdef"),
               datasetAlias = DatasetAlias("tickers"),
               queryAlias = "tickers",
-              vocab = DatasetVocabulary().withDefaults(),
+              vocab = DatasetVocabulary.default(),
               offsetInterval = Some(OffsetInterval(start = 0, end = 7)),
               dataPaths = Vector(tickersDataPath),
               schemaFile = tickersDataPath,
               explicitWatermarks =
                 Vector(Watermark(ts(10).toInstant, ts(4).toInstant))
             ),
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:abcdef"),
               datasetAlias = DatasetAlias("stocks.owned"),
               queryAlias = "stocks.owned",
-              vocab = DatasetVocabulary().withDefaults(),
+              vocab = DatasetVocabulary.default(),
               offsetInterval = Some(OffsetInterval(start = 0, end = 1)),
               dataPaths = Vector(stocksDataPath),
               schemaFile = stocksDataPath,
@@ -235,7 +246,7 @@ class FunctionalJoinStreamToTemporalTableTest
       )
 
       response
-        .asInstanceOf[ExecuteQueryResponse.Success]
+        .asInstanceOf[TransformResponse.Success]
         .newWatermark shouldEqual Some(ts(3).toInstant)
 
       val actual = ParquetHelpers

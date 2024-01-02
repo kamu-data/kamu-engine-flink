@@ -5,7 +5,7 @@ import java.sql.Timestamp
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, OffsetInterval}
+import dev.kamu.core.manifests.{TransformRequest, OffsetInterval}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -45,7 +45,7 @@ class EngineJoinStreamToTemporalTableTest
       val stocksOwnedLayout = tempLayout(tempDir, "stocks.owned")
       val currentValueLayout = tempLayout(tempDir, "value")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: stocks.current-value
@@ -72,7 +72,10 @@ class EngineJoinStreamToTemporalTableTest
            |queryInputs: []
            |newCheckpointPath: ""
            |newDataPath: ""
-           |vocab: {}
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
            |""".stripMargin
       )
 
@@ -105,7 +108,7 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("tickers" -> ts(4), "stocks.owned" -> ts(3))
@@ -159,7 +162,7 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("tickers" -> ts(5), "stocks.owned" -> ts(4))
@@ -193,7 +196,7 @@ class EngineJoinStreamToTemporalTableTest
       val stocksOwnedLayout = tempLayout(tempDir, "stocks.owned")
       val currentValueLayout = tempLayout(tempDir, "value")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: stocks.current-value
@@ -220,7 +223,10 @@ class EngineJoinStreamToTemporalTableTest
            |queryInputs: []
            |newCheckpointPath: ""
            |newDataPath: ""
-           |vocab: {}
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
            |""".stripMargin
       )
 
@@ -249,7 +255,7 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("tickers" -> ts(5), "stocks.owned" -> ts(5))
@@ -284,7 +290,7 @@ class EngineJoinStreamToTemporalTableTest
       val stocksOwnedLayout = tempLayout(tempDir, "stocks.owned")
       val currentValueLayout = tempLayout(tempDir, "value")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: stocks.current-value
@@ -310,7 +316,10 @@ class EngineJoinStreamToTemporalTableTest
            |queryInputs: []
            |newCheckpointPath: ""
            |newDataPath: ""
-           |vocab: {}
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
            |""".stripMargin
       )
 
@@ -343,7 +352,7 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("tickers" -> ts(4), "stocks.owned" -> ts(3))
@@ -397,7 +406,7 @@ class EngineJoinStreamToTemporalTableTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(
             request,
             Map("tickers" -> ts(5), "stocks.owned" -> ts(4))

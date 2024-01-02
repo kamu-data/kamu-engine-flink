@@ -2,7 +2,7 @@ package dev.kamu.engine.flink
 
 import java.nio.file.Paths
 import better.files.File
-import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryResponse}
+import dev.kamu.core.manifests.{TransformRequest, TransformResponse}
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
@@ -15,7 +15,7 @@ import org.slf4j.LoggerFactory
 import java.io.{PrintWriter, StringWriter}
 import java.time.ZoneId
 
-object EngineApp {
+object TransformApp {
   val requestPath = Paths.get("/opt/engine/in-out/request.yaml")
   val responsePath = Paths.get("/opt/engine/in-out/response.yaml")
 
@@ -25,9 +25,9 @@ object EngineApp {
     if (!File(requestPath).exists)
       throw new RuntimeException(s"Could not find request config: $requestPath")
 
-    val request = yaml.load[ExecuteQueryRequest](requestPath)
+    val request = yaml.load[TransformRequest](requestPath)
 
-    def saveResponse(response: ExecuteQueryResponse): Unit = {
+    def saveResponse(response: TransformResponse): Unit = {
       yaml.save(response, responsePath)
     }
 
@@ -64,21 +64,21 @@ object EngineApp {
       s"Processing dataset: ${request.datasetAlias} (${request.datasetId})"
     )
 
-    val engine = new Engine(env, tEnv)
+    val engine = new TransformEngine(env, tEnv)
 
     try {
-      val response = engine.executeRequest(request)
+      val response = engine.executeTransform(request)
       logger.info(s"Processing result: ${request.datasetAlias}\n$response")
       saveResponse(response)
     } catch {
       case e: org.apache.flink.table.api.ValidationException =>
-        saveResponse(ExecuteQueryResponse.InvalidQuery(e.toString))
+        saveResponse(TransformResponse.InvalidQuery(e.toString))
         throw e
       case e: Exception =>
         val sw = new StringWriter()
         e.printStackTrace(new PrintWriter(sw))
         saveResponse(
-          ExecuteQueryResponse.InternalError(e.toString, Some(sw.toString))
+          TransformResponse.InternalError(e.toString, Some(sw.toString))
         )
         throw e
     }

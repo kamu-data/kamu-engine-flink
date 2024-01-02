@@ -9,9 +9,9 @@ import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.{
-  ExecuteQueryRequestInput,
-  ExecuteQueryRequest,
-  ExecuteQueryResponse
+  TransformRequestInput,
+  TransformRequest,
+  TransformResponse
 }
 import dev.kamu.core.utils.fs._
 import org.apache.avro.generic.GenericRecord
@@ -46,29 +46,23 @@ import org.apache.flink.table.types.logical.RowType
 import scala.collection.JavaConverters._
 
 case class InputStream(
-  inputDef: ExecuteQueryRequestInput,
+  inputDef: TransformRequestInput,
   dataStream: DataStream[RowData],
   markerPath: Path,
   vocab: DatasetVocabulary
 )
 
-case class SliceStats(
-  lastWatermark: Option[Instant],
-  numRecords: Long
-)
-
-class Engine(
+class TransformEngine(
   env: StreamExecutionEnvironment,
   tEnv: StreamTableEnvironment
 ) {
   private val outputQueryAlias = "__output__"
-  private val logger = LoggerFactory.getLogger(classOf[Engine])
+  private val logger = LoggerFactory.getLogger(classOf[TransformEngine])
   private val hadoopConfig = new org.apache.hadoop.conf.Configuration()
 
-  def executeRequest(
-    requestRaw: ExecuteQueryRequest
-  ): ExecuteQueryResponse = {
-    val request = requestRaw.withVocabDefaults()
+  def executeTransform(
+    request: TransformRequest
+  ): TransformResponse = {
     val transform = loadTransform(request.transform)
 
     File(request.newCheckpointPath).createDirectories()
@@ -85,7 +79,7 @@ class Engine(
       transform,
       request.systemTime,
       request.nextOffset,
-      request.vocab.withDefaults()
+      request.vocab
     ).withStats(
       outputQueryAlias,
       request.newCheckpointPath.resolve(
@@ -143,7 +137,7 @@ class Engine(
 
     val outputStats = stats(request.datasetId)
 
-    ExecuteQueryResponse.Success(
+    TransformResponse.Success(
       newOffsetInterval =
         if (outputStats.numRecords > 0)
           Some(
@@ -210,7 +204,7 @@ class Engine(
       // See: https://nightlies.apache.org/flink/flink-docs-release-1.16/docs/dev/table/data_stream_api/#examples-for-fromdatastream
       val tableSchemaBuilder = org.apache.flink.table.api.Schema
         .newBuilder()
-        .watermark(input.vocab.eventTimeColumn.get, "SOURCE_WATERMARK()")
+        .watermark(input.vocab.eventTimeColumn, "SOURCE_WATERMARK()")
 
       // TODO: FOR SYSTEM_TIME AS OF join requires PK to be set on the temporal table which is not convenient
       // perhaps in future we can deduce PKs from the queries
@@ -234,9 +228,9 @@ class Engine(
       tEnv.createTemporaryView(s"`$queryAlias`", table)
 
       maybeRegisterTemporalTable(
-        table.dropColumns($(input.vocab.systemTimeColumn.get)),
+        table.dropColumns($(input.vocab.systemTimeColumn)),
         queryAlias,
-        input.vocab.eventTimeColumn.get
+        input.vocab.eventTimeColumn
       )
     }
 
@@ -259,28 +253,28 @@ class Engine(
 
     // Validate user query result
     if (rawResult.getResolvedSchema
-          .getColumn(outputVocab.offsetColumn.get)
+          .getColumn(outputVocab.offsetColumn)
           .isPresent)
       throw new Exception(
         s"Transformed data contains a column that conflicts with the system column name, " +
           s"you should either rename the data column or configure the dataset vocabulary " +
-          s"to use a different name: ${outputVocab.offsetColumn.get}"
+          s"to use a different name: ${outputVocab.offsetColumn}"
       )
 
     if (rawResult.getResolvedSchema
-          .getColumn(outputVocab.systemTimeColumn.get)
+          .getColumn(outputVocab.systemTimeColumn)
           .isPresent)
       throw new Exception(
         s"Transformed data contains a column that conflicts with the system column name, " +
           s"you should either rename the data column or configure the dataset vocabulary " +
-          s"to use a different name: ${outputVocab.systemTimeColumn.get}"
+          s"to use a different name: ${outputVocab.systemTimeColumn}"
       )
 
     if (!rawResult.getResolvedSchema
-          .getColumn(outputVocab.eventTimeColumn.get)
+          .getColumn(outputVocab.eventTimeColumn)
           .isPresent)
       throw new Exception(
-        s"Event time column ${outputVocab.eventTimeColumn.get} was not found amongst: " +
+        s"Event time column ${outputVocab.eventTimeColumn} was not found amongst: " +
           rawResult.getResolvedSchema.getColumns.asScala
             .map(_.getName)
             .mkString(", ")
@@ -347,7 +341,7 @@ class Engine(
   }
 
   private def openInputs(
-    inputs: Vector[ExecuteQueryRequestInput],
+    inputs: Vector[TransformRequestInput],
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
   ): Vector[InputStream] = {
@@ -362,7 +356,7 @@ class Engine(
   }
 
   private def openInputStreamCheckpointable(
-    input: ExecuteQueryRequestInput,
+    input: TransformRequestInput,
     prevCheckpointDir: Option[Path],
     newCheckpointDir: Path
   ): InputStream = {
@@ -375,7 +369,7 @@ class Engine(
     val newStatsPath =
       newCheckpointDir.resolve(s"${input.datasetId.toMultibase()}.stats")
 
-    val prevStats = prevStatsPath.map(readStats)
+    val prevStats = prevStatsPath.map(SliceStats.read)
 
     val stream =
       openInputStream(
@@ -392,7 +386,7 @@ class Engine(
       inputDef = input,
       dataStream = streamWithStats,
       markerPath = markerPath,
-      vocab = input.vocab.withDefaults()
+      vocab = input.vocab
     )
   }
 
@@ -403,7 +397,7 @@ class Engine(
   ): DataStream[RowData] = {
     val rowType =
       stream.dataType.asInstanceOf[InternalTypeInfo[RowType]].toRowType
-    val offsetColumn = rowType.getFieldIndex(vocab.offsetColumn.get)
+    val offsetColumn = rowType.getFieldIndex(vocab.offsetColumn)
 
     interval match {
       case None => stream.filter(_ => false)
@@ -421,36 +415,12 @@ class Engine(
   ): Map[DatasetId, SliceStats] = {
     datasetIds
       .map(id => (id, newCheckpointDir.resolve(s"${id.toMultibase()}.stats")))
-      .map { case (name, p) => (name, readStats(p)) }
+      .map { case (name, p) => (name, SliceStats.read(p)) }
       .toMap
   }
 
-  private def readStats(path: Path): SliceStats = {
-    try {
-      val reader = new Scanner(path)
-
-      val sRowCount = reader.nextLine()
-      val sLastWatermark = reader.nextLine()
-
-      val lLastWatermark = sLastWatermark.toLong
-
-      reader.close()
-
-      SliceStats(
-        lastWatermark =
-          if (lLastWatermark == Long.MinValue) None
-          else Some(Instant.ofEpochMilli(lLastWatermark)),
-        numRecords = sRowCount.toLong
-      )
-    } catch {
-      case e: Exception =>
-        logger.error(s"Error while reading stats file: $path", e)
-        throw e
-    }
-  }
-
   private def openInputStream(
-    input: ExecuteQueryRequestInput,
+    input: TransformRequestInput,
     prevWatermark: Option[Instant],
     terminateWhenExhausted: Boolean,
     exhaustedMarkerPath: Option[Path]
@@ -477,11 +447,11 @@ class Engine(
     )
 
     val eventTimePos =
-      parquetSchema.getFieldIndex(input.vocab.eventTimeColumn.get)
+      parquetSchema.getFieldIndex(input.vocab.eventTimeColumn)
 
     if (eventTimePos < 0)
       throw new Exception(
-        s"Event time column not found: ${input.vocab.eventTimeColumn.get}"
+        s"Event time column not found: ${input.vocab.eventTimeColumn}"
       )
 
     val stream = env.addSource(
@@ -526,13 +496,7 @@ class Engine(
     if (raw.engine != "flink")
       throw new RuntimeException(s"Unsupported engine: ${raw.engine}")
 
-    val sql = raw.asInstanceOf[Transform.Sql]
-
-    sql.copy(
-      queries =
-        if (sql.query.isDefined) Some(Vector(SqlQueryStep(None, sql.query.get)))
-        else sql.queries
-    )
+    raw.asInstanceOf[Transform.Sql]
   }
 
   implicit class StreamHelpers(s: DataStream[Row]) {

@@ -10,8 +10,11 @@ import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord
 import org.slf4j.LoggerFactory
 
-class StatsOperator[T](name: String, path: String)
-    extends AbstractStreamOperator[T]
+class StatsOperator[T](
+  name: String,
+  path: String,
+  flushOnClose: Boolean = false
+) extends AbstractStreamOperator[T]
     with OneInputStreamOperator[T, T] {
   @transient private lazy val logger = LoggerFactory.getLogger(getClass)
 
@@ -45,6 +48,10 @@ class StatsOperator[T](name: String, path: String)
   }
 
   override def close(): Unit = {
+    // For batch mode only
+    if (flushOnClose) {
+      flush()
+    }
     if (rowCount > 0) {
       throw new RuntimeException(
         s"Closing stats for $name with $rowCount rows were not flushed"

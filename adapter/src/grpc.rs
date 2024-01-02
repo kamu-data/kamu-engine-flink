@@ -6,8 +6,8 @@ use tonic::{Request, Response, Status};
 
 use opendatafabric::engine::grpc_generated::engine_server::Engine as EngineGRPC;
 use opendatafabric::engine::grpc_generated::{
-    ExecuteQueryRequest as ExecuteQueryRequestGRPC,
-    ExecuteQueryResponse as ExecuteQueryResponseGRPC,
+    RawQueryRequest as RawQueryRequestGRPC, RawQueryResponse as RawQueryResponseGRPC,
+    TransformRequest as TransformRequestGRPC, TransformResponse as TransformResponseGRPC,
 };
 use opendatafabric::serde::flatbuffers::FlatbuffersEngineProtocol;
 use tracing::info;
@@ -31,17 +31,18 @@ impl EngineGRPCImpl {
 
 #[tonic::async_trait]
 impl EngineGRPC for EngineGRPCImpl {
-    type ExecuteQueryStream = ReceiverStream<Result<ExecuteQueryResponseGRPC, Status>>;
+    type ExecuteRawQueryStream = ReceiverStream<Result<RawQueryResponseGRPC, Status>>;
+    type ExecuteTransformStream = ReceiverStream<Result<TransformResponseGRPC, Status>>;
 
-    async fn execute_query(
+    async fn execute_raw_query(
         &self,
-        request_grpc: Request<ExecuteQueryRequestGRPC>,
-    ) -> Result<Response<Self::ExecuteQueryStream>, Status> {
-        let span = tracing::span!(tracing::Level::INFO, "execute_query");
+        request_grpc: Request<RawQueryRequestGRPC>,
+    ) -> Result<Response<Self::ExecuteRawQueryStream>, Status> {
+        let span = tracing::span!(tracing::Level::INFO, "execute_raw_query");
         let _enter = span.enter();
 
         let request = FlatbuffersEngineProtocol
-            .read_execute_query_request(&request_grpc.get_ref().flatbuffer)
+            .read_raw_query_request(&request_grpc.get_ref().flatbuffer)
             .unwrap();
 
         info!(message = "Got request", request = ?request);
@@ -51,13 +52,47 @@ impl EngineGRPC for EngineGRPCImpl {
         let adapter = self.adapter.clone();
 
         tokio::spawn(async move {
-            let response = adapter.execute_query_impl(request).await.unwrap();
+            let response = adapter.execute_raw_query_impl(request).await.unwrap();
 
             let response_fb = FlatbuffersEngineProtocol
-                .write_execute_query_response(&response)
+                .write_raw_query_response(&response)
                 .unwrap();
 
-            let response_grpc = ExecuteQueryResponseGRPC {
+            let response_grpc = RawQueryResponseGRPC {
+                flatbuffer: response_fb.collapse_vec(),
+            };
+
+            tx.send(Ok(response_grpc)).await.unwrap();
+        });
+
+        Ok(Response::new(ReceiverStream::new(rx)))
+    }
+
+    async fn execute_transform(
+        &self,
+        request_grpc: Request<TransformRequestGRPC>,
+    ) -> Result<Response<Self::ExecuteTransformStream>, Status> {
+        let span = tracing::span!(tracing::Level::INFO, "execute_transform");
+        let _enter = span.enter();
+
+        let request = FlatbuffersEngineProtocol
+            .read_transform_request(&request_grpc.get_ref().flatbuffer)
+            .unwrap();
+
+        info!(message = "Got request", request = ?request);
+
+        let (tx, rx) = tokio::sync::mpsc::channel(1);
+
+        let adapter = self.adapter.clone();
+
+        tokio::spawn(async move {
+            let response = adapter.execute_transform_impl(request).await.unwrap();
+
+            let response_fb = FlatbuffersEngineProtocol
+                .write_transform_response(&response)
+                .unwrap();
+
+            let response_grpc = TransformResponseGRPC {
                 flatbuffer: response_fb.collapse_vec(),
             };
 

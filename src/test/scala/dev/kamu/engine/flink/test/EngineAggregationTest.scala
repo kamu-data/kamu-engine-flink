@@ -7,7 +7,7 @@ import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryRequestInput}
+import dev.kamu.core.manifests.{TransformRequest, TransformRequestInput}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
@@ -45,13 +45,16 @@ class EngineAggregationTest
       val inputLayout = tempLayout(tempDir, "in")
       val outputLayout = tempLayout(tempDir, "out")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: out
            |systemTime: "2020-01-01T00:00:00Z"
            |nextOffset: 0
-           |vocab: {}
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
            |transform:
            |  kind: Sql
            |  engine: flink
@@ -91,7 +94,7 @@ class EngineAggregationTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(3, 2)))
             .copy(systemTime = ts(10).toInstant, nextOffset = 0),
           tempDir
@@ -139,7 +142,7 @@ class EngineAggregationTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(5, 2)))
             .copy(systemTime = ts(20).toInstant, nextOffset = 4),
           tempDir
@@ -181,7 +184,7 @@ class EngineAggregationTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(6, 1)))
             .copy(systemTime = ts(30).toInstant, nextOffset = 12),
           tempDir
@@ -220,20 +223,20 @@ class EngineAggregationTest
         )
         request = request.copy(
           queryInputs = Vector(
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:in"),
               datasetAlias = DatasetAlias("in"),
               queryAlias = "in",
               offsetInterval = None,
               schemaFile = lastInputFile,
               dataPaths = Vector.empty,
-              vocab = DatasetVocabulary(None, None),
+              vocab = DatasetVocabulary.default(),
               explicitWatermarks = Vector.empty
             )
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(7, 1)))
             .copy(systemTime = ts(31).toInstant, nextOffset = 14),
           tempDir
@@ -266,20 +269,20 @@ class EngineAggregationTest
         )
         request = request.copy(
           queryInputs = Vector(
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:in"),
               datasetAlias = DatasetAlias("in"),
               queryAlias = "in",
               offsetInterval = None,
               schemaFile = lastInputFile,
               dataPaths = Vector.empty,
-              vocab = DatasetVocabulary(None, None),
+              vocab = DatasetVocabulary.default(),
               explicitWatermarks = Vector.empty
             )
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(8)))
             .copy(systemTime = ts(31).toInstant, nextOffset = 16),
           tempDir
@@ -300,7 +303,7 @@ class EngineAggregationTest
       val inputLayout = tempLayout(tempDir, "in")
       val outputLayout = tempLayout(tempDir, "out")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
           |datasetId: "did:odf:blah"
           |datasetAlias: out
@@ -320,7 +323,10 @@ class EngineAggregationTest
           |queryInputs: []
           |newCheckpointPath: ""
           |newDataPath: ""
-          |vocab: {}
+          |vocab:
+          |  offsetColumn: offset
+          |  systemTimeColumn: system_time
+          |  eventTimeColumn: event_time
           |""".stripMargin
       )
 
@@ -347,7 +353,7 @@ class EngineAggregationTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(2, 2)))
             .copy(systemTime = ts(10).toInstant, nextOffset = 0),
           tempDir
@@ -392,7 +398,7 @@ class EngineAggregationTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(4, 1)))
             .copy(systemTime = ts(20).toInstant, nextOffset = 2),
           tempDir

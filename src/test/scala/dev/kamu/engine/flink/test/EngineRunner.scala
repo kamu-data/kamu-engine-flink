@@ -1,12 +1,18 @@
 package dev.kamu.engine.flink.test
 
 import java.nio.file.{Path, Paths}
-
 import better.files.File
 
 import scala.concurrent.duration._
 import pureconfig.generic.auto._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryResponse}
+import dev.kamu.core.manifests.{
+  RawQueryRequest,
+  RawQueryResponse,
+  SqlQueryStep,
+  Transform,
+  TransformRequest,
+  TransformResponse
+}
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.utils.Temp
@@ -19,19 +25,79 @@ import dev.kamu.core.utils.{
 }
 import org.apache.commons.io.FileUtils
 import org.slf4j.LoggerFactory
+import pureconfig.{ConfigReader, ConfigWriter, Derivation}
+
+import scala.reflect.ClassTag
 
 class EngineRunner(
   dockerClient: DockerClient,
   image: String =
-    "ghcr.io/kamu-data/engine-flink:0.16.0-flink_1.16.0-scala_2.12-java8",
+    "ghcr.io/kamu-data/engine-flink:0.17.0-flink_1.16.0-scala_2.12-java8",
   networkName: String = "kamu-flink"
 ) {
   private val logger = LoggerFactory.getLogger(getClass)
 
-  def run(
-    request: ExecuteQueryRequest,
+  def executeRawQuery(
+    request: RawQueryRequest,
     workspaceDir: Path
-  ): ExecuteQueryResponse.Success = {
+  ): RawQueryResponse.Success = {
+    run[RawQueryRequest, RawQueryResponse](
+      request,
+      workspaceDir,
+      "dev.kamu.engine.flink.RawQueryApp",
+      ""
+    ).asInstanceOf[RawQueryResponse.Success]
+  }
+
+  def executeTransform(
+    requestRaw: TransformRequest,
+    workspaceDir: Path
+  ): TransformResponse.Success = {
+    // Normalize request (this is normally done by coordinator)
+    val request = {
+      val transformRaw = requestRaw.transform.asInstanceOf[Transform.Sql]
+      requestRaw.copy(
+        transform = if (transformRaw.query.isDefined) {
+          transformRaw.copy(
+            queries = Some(Vector(SqlQueryStep(None, transformRaw.query.get)))
+          )
+        } else {
+          transformRaw
+        }
+      )
+    }
+
+    // Prepare savepoint
+    val newCheckpointPath = request.newCheckpointPath
+    val prevSavepoint =
+      request.prevCheckpointPath.map(p => getPrevSavepoint(p))
+    val savepointArgs = prevSavepoint.map(p => s"-s $p").getOrElse("")
+
+    try {
+      run[TransformRequest, TransformResponse](
+        request,
+        workspaceDir,
+        "dev.kamu.engine.flink.TransformApp",
+        savepointArgs
+      ).asInstanceOf[TransformResponse.Success]
+    } catch {
+      case e: RuntimeException =>
+        if (newCheckpointPath.toFile.exists()) {
+          FileUtils.deleteDirectory(newCheckpointPath.toFile)
+        }
+        throw e
+    }
+  }
+
+  private def run[Req: ClassTag, Resp: ClassTag](
+    request: Req,
+    workspaceDir: Path,
+    mainClass: String,
+    extraArgs: String
+  )(
+    implicit writer: Derivation[ConfigWriter[Req]],
+    reader: Derivation[ConfigReader[Resp]]
+  ): Resp = {
     val engineJar = Paths.get("target", "scala-2.12", "engine.flink.jar")
 
     if (!File(engineJar).exists)
@@ -43,7 +109,7 @@ class EngineRunner(
     val volumeMap = Map(workspaceDir -> workspaceDir)
 
     Temp.withRandomTempDir("kamu-inout-") { inOutDir =>
-      yaml.save(request, inOutDir.resolve("request.yaml"))
+      yaml.save[Req](request, inOutDir.resolve("request.yaml"))
 
       dockerClient.withNetwork(networkName) {
 
@@ -86,11 +152,6 @@ class EngineRunner(
 
         jobManager.waitForHostPort(8081, 15 seconds)
 
-        val newCheckpointPath = request.newCheckpointPath
-        val prevSavepoint =
-          request.prevCheckpointPath.map(p => getPrevSavepoint(p))
-        val savepointArgs = prevSavepoint.map(p => s"-s $p").getOrElse("")
-
         try {
           val exitCode = dockerClient
             .exec(
@@ -99,15 +160,12 @@ class EngineRunner(
               Seq(
                 "bash",
                 "-c",
-                s"flink run $savepointArgs $engineJarInContainer"
+                s"flink run -c $mainClass $extraArgs $engineJarInContainer"
               )
             )
             .!
 
           if (exitCode != 0) {
-            if (newCheckpointPath.toFile.exists()) {
-              FileUtils.deleteDirectory(newCheckpointPath.toFile)
-            }
             throw new RuntimeException(
               s"Engine run failed with exit code: $exitCode"
             )
@@ -136,8 +194,7 @@ class EngineRunner(
       }
 
       yaml
-        .load[ExecuteQueryResponse](inOutDir.resolve("response.yaml"))
-        .asInstanceOf[ExecuteQueryResponse.Success]
+        .load[Resp](inOutDir.resolve("response.yaml"))
     }
   }
 

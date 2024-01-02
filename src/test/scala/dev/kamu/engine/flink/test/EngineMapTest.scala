@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, OffsetInterval}
+import dev.kamu.core.manifests.{TransformRequest, OffsetInterval}
 import dev.kamu.core.utils.{DockerClient, Temp}
 import dev.kamu.core.utils.fs._
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -22,7 +22,7 @@ class EngineMapTest
       val inputLayout = tempLayout(tempDir, "in")
       val outputLayout = tempLayout(tempDir, "out")
 
-      val requestTemplate = yaml.load[ExecuteQueryRequest](
+      val requestTemplate = yaml.load[TransformRequest](
         s"""
            |datasetId: "did:odf:blah"
            |datasetAlias: out
@@ -40,7 +40,10 @@ class EngineMapTest
            |queryInputs: []
            |newCheckpointPath: ""
            |newDataPath: ""
-           |vocab: {}
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
            |""".stripMargin
       )
 
@@ -58,7 +61,7 @@ class EngineMapTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(4)))
             .copy(systemTime = ts(10).toInstant, nextOffset = 0),
           tempDir
@@ -111,7 +114,7 @@ class EngineMapTest
           )
         )
 
-        val result = engineRunner.run(
+        val result = engineRunner.executeTransform(
           withWatermarks(request, Map("in" -> ts(8)))
             .copy(systemTime = ts(20).toInstant, nextOffset = 4),
           tempDir

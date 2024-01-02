@@ -6,7 +6,7 @@ edition = "2021"
 [dependencies]
 # Kamu
 # opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.120.1" }
-opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "feature/breaking-changes" }
+opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "feature/ingest-preprocessing-with-any-engine" }
 
 # RPC
 libc = "0.2"

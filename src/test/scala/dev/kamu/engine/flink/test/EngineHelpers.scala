@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import java.nio.file.Path
 import com.sksamuel.avro4s.{Decoder, Encoder, SchemaFor}
 import dev.kamu.core.manifests._
-import dev.kamu.core.manifests.{ExecuteQueryRequest, ExecuteQueryRequestInput}
+import dev.kamu.core.manifests.{TransformRequest, TransformRequestInput}
 import dev.kamu.core.utils.fs._
 
 import scala.util.Random
@@ -19,10 +19,10 @@ trait EngineHelpers {
   }
 
   def withRandomOutputPath(
-    request: ExecuteQueryRequest,
+    request: TransformRequest,
     layout: DatasetLayout,
     prevCheckpointPath: Option[Path] = None
-  ): ExecuteQueryRequest = {
+  ): TransformRequest = {
     request.copy(
       newDataPath = layout.dataDir.resolve(randomDataFileName()),
       prevCheckpointPath = prevCheckpointPath,
@@ -32,13 +32,13 @@ trait EngineHelpers {
   }
 
   def withInputData[T <: HasOffset: Encoder: Decoder](
-    request: ExecuteQueryRequest,
+    request: TransformRequest,
     queryAlias: String,
     dataDir: Path,
     data: Seq[T]
   )(
     implicit schemaFor: SchemaFor[T]
-  ): ExecuteQueryRequest = {
+  ): TransformRequest = {
     val offsetInterval = OffsetInterval(
       start = data.map(_.getOffset).min,
       end = data.map(_.getOffset).max
@@ -54,7 +54,7 @@ trait EngineHelpers {
       case -1 =>
         request.copy(
           queryInputs = request.queryInputs ++ Vector(
-            ExecuteQueryRequestInput(
+            TransformRequestInput(
               datasetId = DatasetId("did:odf:" + queryAlias),
               datasetAlias = DatasetAlias(queryAlias),
               queryAlias = queryAlias,
@@ -62,7 +62,7 @@ trait EngineHelpers {
               schemaFile = inputPath,
               dataPaths = Vector(inputPath),
               explicitWatermarks = Vector.empty,
-              vocab = DatasetVocabulary(None, None)
+              vocab = DatasetVocabulary.default()
             )
           )
         )

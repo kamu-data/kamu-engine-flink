@@ -127,7 +127,6 @@ Compile / run := Defaults
 //Compile / run / fork := true
 Global / cancelable := true
 
-assembly / mainClass := Some("dev.kamu.engine.flink.EngineApp")
 assembly / assemblyJarName := "engine.flink.jar"
 
 // exclude Scala library from assembly

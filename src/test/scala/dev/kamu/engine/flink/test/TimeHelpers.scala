@@ -5,7 +5,7 @@ import java.sql.Timestamp
 import java.time.{LocalDateTime, ZoneOffset, ZonedDateTime}
 
 import dev.kamu.core.manifests.DatasetLayout
-import dev.kamu.core.manifests.{ExecuteQueryRequest, Watermark}
+import dev.kamu.core.manifests.{TransformRequest, Watermark}
 import dev.kamu.core.utils.fs._
 
 trait TimeHelpers {
@@ -18,9 +18,9 @@ trait TimeHelpers {
   }
 
   def withWatermarks(
-    request: ExecuteQueryRequest,
+    request: TransformRequest,
     wms: Map[String, Timestamp]
-  ): ExecuteQueryRequest = {
+  ): TransformRequest = {
     val wmsVec =
       wms.mapValues(
         eventTime => Vector(Watermark(ts(1).toInstant, eventTime.toInstant))
