@@ -9,11 +9,12 @@ import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.{
-  TransformRequestInput,
   TransformRequest,
+  TransformRequestInput,
   TransformResponse
 }
 import dev.kamu.core.utils.fs._
+import StreamHelpers._
 import org.apache.avro.generic.GenericRecord
 import org.apache.flink.api.common.JobStatus
 import org.apache.flink.connector.file.src.FileSourceSplit
@@ -31,7 +32,7 @@ import org.apache.flink.table.runtime.typeutils.{
   ExternalTypeInfo,
   InternalTypeInfo
 }
-import org.apache.flink.types.Row
+import org.apache.flink.types.{Row, RowKind}
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.MessageType
@@ -94,6 +95,7 @@ class TransformEngine(
 
     val converterRowData =
       RowRowConverter.create(resultStreamDataType)
+    converterRowData.open(this.getClass.getClassLoader)
 
     val resultStreamRowData =
       resultStream.map(row => converterRowData.toInternal(row))(
@@ -214,6 +216,8 @@ class TransformEngine(
           tt => tableSchemaBuilder.primaryKey(tt.primaryKey.toList.asJava)
         )
 
+      // TODO: Input tables should be constructed using `fromChangelogStream` instead, but we're postponing this
+      //  until Flink version upgrade
       val table = tEnv
         .fromDataStream(
           input.dataStream
@@ -227,8 +231,18 @@ class TransformEngine(
 
       tEnv.createTemporaryView(s"`$queryAlias`", table)
 
+      // Strip out system columns
+      // This allows `SELECT * FROM` to be a valid transform query that does not produce columns
+      // that conflict with output system columns. In future, however, we would like to provide user access to `offset`
+      // and `system_time` while allowing `SELECT * FROM` to work, which would likely require a query rewrite.
+      val tableDataOnly = table.dropColumns(
+        $(input.vocab.offsetColumn),
+        $(input.vocab.operationTypeColumn),
+        $(input.vocab.systemTimeColumn)
+      )
+
       maybeRegisterTemporalTable(
-        table.dropColumns($(input.vocab.systemTimeColumn)),
+        tableDataOnly,
         queryAlias,
         input.vocab.eventTimeColumn
       )
@@ -252,47 +266,72 @@ class TransformEngine(
     logger.info("Raw result schema:\n{}", rawResult.getResolvedSchema)
 
     // Validate user query result
-    if (rawResult.getResolvedSchema
-          .getColumn(outputVocab.offsetColumn)
-          .isPresent)
-      throw new Exception(
-        s"Transformed data contains a column that conflicts with the system column name, " +
-          s"you should either rename the data column or configure the dataset vocabulary " +
-          s"to use a different name: ${outputVocab.offsetColumn}"
-      )
-
-    if (rawResult.getResolvedSchema
-          .getColumn(outputVocab.systemTimeColumn)
-          .isPresent)
-      throw new Exception(
-        s"Transformed data contains a column that conflicts with the system column name, " +
-          s"you should either rename the data column or configure the dataset vocabulary " +
-          s"to use a different name: ${outputVocab.systemTimeColumn}"
-      )
+    for (c <- List(
+           outputVocab.offsetColumn,
+           outputVocab.systemTimeColumn
+         )) {
+      if (rawResult.getResolvedSchema.getColumn(c).isPresent)
+        throw new Exception(
+          s"Transformed data contains column '$c' that conflicts with the system column name, " +
+            s"you should either rename the data column or configure the dataset vocabulary " +
+            s"to use a different name"
+        )
+    }
 
     if (!rawResult.getResolvedSchema
           .getColumn(outputVocab.eventTimeColumn)
           .isPresent)
       throw new Exception(
-        s"Event time column ${outputVocab.eventTimeColumn} was not found amongst: " +
+        s"Event time column ${outputVocab.eventTimeColumn} was not found among: " +
           rawResult.getResolvedSchema.getColumns.asScala
             .map(_.getName)
             .mkString(", ")
       )
 
+    // Populate system time
     val systemTimeStr = systemTime.toString.stripSuffix("Z").replace('T', ' ')
+
+    // Propagate or generate `op` column
+    val opColumnPresent = rawResult.getResolvedSchema
+      .getColumn(outputVocab.operationTypeColumn)
+      .isPresent
+    val opSelect = if (opColumnPresent) {
+      s"`${outputVocab.operationTypeColumn}`"
+    } else {
+      s"cast(0 as INT) as `${outputVocab.operationTypeColumn}`"
+    }
+
+    val otherColumns =
+      rawResult.getResolvedSchema.getColumnNames.asScala
+        .filter(c => c != outputVocab.operationTypeColumn)
+        .map(c => s"`$c`")
+        .mkString(", ")
 
     // Add system columns
     val resultTable = tEnv
       .sqlQuery(
-        s"SELECT cast(0 as BIGINT) as `offset`, CAST('${systemTimeStr}' as TIMESTAMP(3)) as `system_time`, * FROM `${outputQueryAlias}`"
+        s"""
+        SELECT
+          cast(0 as BIGINT) as `${outputVocab.offsetColumn}`,
+          ${opSelect},
+          cast('${systemTimeStr}' as timestamp(3)) as `system_time`,
+          ${otherColumns}
+        FROM `${outputQueryAlias}`
+        """
       )
 
     logger.info("Final result schema:\n{}", resultTable.getSchema)
 
-    resultTable
-      .toDataStream[Row](classOf[Row])
-      .assignOffsets(startOffset)
+    var result = resultTable.toChangelogStream
+      .assignOffsets(offsetFieldIndex = 0, startOffset)
+
+    // TODO: Populate `op` from RowKind unless it's defined explicitly.
+    //  We will always use RowKind once we fully support changelog streams as inputs.
+    if (!opColumnPresent) {
+      result = result.assignChangelogOps(opFieldIndex = 1)
+    }
+
+    result
       .withDebugLogging(s"${outputQueryAlias}::final")
   }
 
@@ -446,9 +485,14 @@ class TransformEngine(
       true
     )
 
+    val opPos = parquetSchema.getFieldIndex(input.vocab.operationTypeColumn)
+    if (opPos < 0)
+      throw new Exception(
+        s"Operation column not found: ${input.vocab.operationTypeColumn}"
+      )
+
     val eventTimePos =
       parquetSchema.getFieldIndex(input.vocab.eventTimeColumn)
-
     if (eventTimePos < 0)
       throw new Exception(
         s"Event time column not found: ${input.vocab.eventTimeColumn}"
@@ -459,6 +503,12 @@ class TransformEngine(
         input.queryAlias,
         input.dataPaths.map(_.toString),
         inputFormat,
+        // TODO: Restore row kind from ODF operationType column - this is currently blocked by RowData -> Row
+        //  conversion that is required to construct a table using `fromChagelogStream` (see ParquetSourceTest).
+        //  For now we propagate `op` as an ordinary column.
+        //
+        // row => Op.toRowKind(row.getInt(opPos)),
+        _ => RowKind.INSERT,
         row => row.getTimestamp(eventTimePos, Int.MaxValue).getMillisecond,
         prevWatermark,
         input.explicitWatermarks.map(_.eventTime),
@@ -500,8 +550,22 @@ class TransformEngine(
   }
 
   implicit class StreamHelpers(s: DataStream[Row]) {
-    def assignOffsets(startOffset: Long): DataStream[Row] = {
-      s.transform("offset", new OffsetOperator(startOffset))(s.dataType)
+    def assignOffsets(
+      offsetFieldIndex: Int,
+      startOffset: Long
+    ): DataStream[Row] = {
+      s.transform(
+        "assign-offset",
+        new OffsetOperator(offsetFieldIndex, startOffset)
+      )(
+        s.dataType
+      )
+    }
+
+    def assignChangelogOps(opFieldIndex: Int): DataStream[Row] = {
+      s.transform("assign-op", new ChangelogOperator(opFieldIndex))(
+        s.dataType
+      )
     }
   }
 

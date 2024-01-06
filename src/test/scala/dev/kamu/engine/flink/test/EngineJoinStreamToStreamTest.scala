@@ -5,14 +5,16 @@ import java.sql.Timestamp
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{TransformRequest, OffsetInterval}
+import dev.kamu.core.manifests.{OffsetInterval, TransformRequest}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
+import dev.kamu.engine.flink.Op
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Order(
   offset: Long,
+  op: Int,
   system_time: Timestamp,
   event_time: Timestamp,
   order_id: Long,
@@ -21,14 +23,39 @@ case class Order(
   override def getOffset: Long = offset
 }
 
+object Order {
+  def apply(
+    offset: Long,
+    system_time: Timestamp,
+    event_time: Timestamp,
+    order_id: Long,
+    quantity: Long
+  ): Order = {
+    Order(offset, Op.Append, system_time, event_time, order_id, quantity)
+  }
+}
+
 case class Shipment(
   offset: Long,
+  op: Int,
   system_time: Timestamp,
   event_time: Timestamp,
   order_id: Long,
   num_shipped: Long
 ) extends HasOffset {
   override def getOffset: Long = offset
+}
+
+object Shipment {
+  def apply(
+    offset: Long,
+    system_time: Timestamp,
+    event_time: Timestamp,
+    order_id: Long,
+    num_shipped: Long
+  ): Shipment = {
+    Shipment(offset, Op.Append, system_time, event_time, order_id, num_shipped)
+  }
 }
 
 case class ShippedOrder(
@@ -95,6 +122,7 @@ class EngineJoinStreamToStreamTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: order_time
+           |  operationTypeColumn: op
            |""".stripMargin
       )
 
@@ -106,9 +134,9 @@ class EngineJoinStreamToStreamTest
           "orders",
           ordersLayout.dataDir,
           Seq(
-            Order(0, ts(6), ts(1), 1, 10),
-            Order(1, ts(6), ts(1), 2, 120),
-            Order(2, ts(6), ts(5), 3, 9)
+            Order(0, Op.Append, ts(6), ts(1), 1, 10),
+            Order(1, Op.Append, ts(6), ts(1), 2, 120),
+            Order(2, Op.Append, ts(6), ts(5), 3, 9)
           )
         )
 
@@ -254,6 +282,7 @@ class EngineJoinStreamToStreamTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: order_time
+           |  operationTypeColumn: op
            |""".stripMargin
       )
 
@@ -378,6 +407,7 @@ class EngineJoinStreamToStreamTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: order_time
+           |  operationTypeColumn: op
            |""".stripMargin
       )
 

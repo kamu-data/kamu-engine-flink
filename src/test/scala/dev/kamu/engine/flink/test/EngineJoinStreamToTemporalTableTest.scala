@@ -5,20 +5,34 @@ import java.sql.Timestamp
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{TransformRequest, OffsetInterval}
+import dev.kamu.core.manifests.{OffsetInterval, TransformRequest}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
+import dev.kamu.engine.flink.Op
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class StocksOwned(
   offset: Long,
+  op: Int,
   system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   volume: Int
 ) extends HasOffset {
   override def getOffset: Long = offset
+}
+
+object StocksOwned {
+  def apply(
+    offset: Long,
+    system_time: Timestamp,
+    event_time: Timestamp,
+    symbol: String,
+    volume: Int
+  ): StocksOwned = {
+    StocksOwned(offset, Op.Append, system_time, event_time, symbol, volume)
+  }
 }
 
 case class StocksOwnedWithValue(
@@ -76,6 +90,7 @@ class EngineJoinStreamToTemporalTableTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: event_time
+           |  operationTypeColumn: op
            |""".stripMargin
       )
 
@@ -227,6 +242,7 @@ class EngineJoinStreamToTemporalTableTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: event_time
+           |  operationTypeColumn: op
            |""".stripMargin
       )
 
@@ -320,6 +336,7 @@ class EngineJoinStreamToTemporalTableTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: event_time
+           |  operationTypeColumn: op
            |""".stripMargin
       )
 

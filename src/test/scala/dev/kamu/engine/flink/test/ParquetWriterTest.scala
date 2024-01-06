@@ -4,7 +4,7 @@ import com.sksamuel.avro4s.{Decoder, Encoder, SchemaFor}
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.bridge.scala._
 import dev.kamu.core.utils.Temp
-import dev.kamu.engine.flink.{ParquetFilesStreamSourceFunction, ParuqetSink}
+import dev.kamu.engine.flink.{Op, ParquetFilesStreamSourceFunction, ParuqetSink}
 import org.apache.avro.generic.GenericRecord
 import org.apache.flink.api.common.restartstrategy.RestartStrategies
 import org.apache.flink.connector.file.src.FileSourceSplit
@@ -20,7 +20,7 @@ import org.apache.flink.table.runtime.typeutils.{
   ExternalTypeInfo,
   InternalTypeInfo
 }
-import org.apache.flink.types.Row
+import org.apache.flink.types.{Row, RowKind}
 import org.apache.hadoop.conf.Configuration
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
@@ -77,7 +77,8 @@ class ParquetWriterTest
         "src",
         Vector(inPath.toString),
         parquetFormat,
-        row => row.getTimestamp(2, Int.MaxValue).getMillisecond,
+        _ => RowKind.INSERT,
+        _ => 0,
         None,
         Vector.empty,
         true,
@@ -147,13 +148,14 @@ class ParquetWriterTest
   test("basic") {
     runTest(
       List(
-        Ticker(0, ts(5), ts(1, 1), "A", 10),
-        Ticker(1, ts(5), ts(1, 1), "B", 20),
-        Ticker(2, ts(5), ts(1, 2), "A", 11),
-        Ticker(3, ts(5), ts(1, 2), "B", 21)
+        Ticker(0, Op.Append, ts(5), ts(1, 1), "A", 10),
+        Ticker(1, Op.Append, ts(5), ts(1, 1), "B", 20),
+        Ticker(2, Op.Append, ts(5), ts(1, 2), "A", 11),
+        Ticker(3, Op.Append, ts(5), ts(1, 2), "B", 21)
       ),
       """SELECT
         |  `offset`,
+        |  `op`,
         |  `system_time`,
         |  `event_time`,
         |  `symbol`,
@@ -161,6 +163,7 @@ class ParquetWriterTest
         |FROM input""".stripMargin,
       """message org.apache.flink.avro.generated.record {
         |  required int64 offset;
+        |  required int32 op;
         |  required int64 system_time (TIMESTAMP(MILLIS,true));
         |  required int64 event_time (TIMESTAMP(MILLIS,true));
         |  required binary symbol (STRING);
@@ -168,10 +171,10 @@ class ParquetWriterTest
         |}
         |""".stripMargin,
       List(
-        Ticker(0, ts(5), ts(1, 1), "A", 100),
-        Ticker(1, ts(5), ts(1, 1), "B", 200),
-        Ticker(2, ts(5), ts(1, 2), "A", 110),
-        Ticker(3, ts(5), ts(1, 2), "B", 210)
+        Ticker(0, Op.Append, ts(5), ts(1, 1), "A", 100),
+        Ticker(1, Op.Append, ts(5), ts(1, 1), "B", 200),
+        Ticker(2, Op.Append, ts(5), ts(1, 2), "A", 110),
+        Ticker(3, Op.Append, ts(5), ts(1, 2), "B", 210)
       )
     )
   }
@@ -181,56 +184,34 @@ class ParquetWriterTest
   test("decimal") {
     runTest(
       List(
-        WriteRaw(0, ts(1), ts(1, 1), "123456789.0123"),
-        WriteRaw(1, ts(1), ts(1, 2), "-123456789.0123"),
-        WriteRaw(
-          2,
-          ts(1),
-          ts(1, 3),
-          "12345678901234567890.123456789012345678"
-        ),
-        WriteRaw(
-          3,
-          ts(1),
-          ts(1, 4),
-          "-12345678901234567890.123456789012345678"
-        )
+        ValueRaw("123456789.0123"),
+        ValueRaw("-123456789.0123"),
+        ValueRaw("12345678901234567890.123456789012345678"),
+        ValueRaw("-12345678901234567890.123456789012345678")
       ),
       """SELECT
-        |  `event_time` as `system_time`,
-        |  `event_time`,
         |  TRY_CAST (`value` as DECIMAL(13, 4)) as decimal_13_4,
         |  TRY_CAST (`value` as DECIMAL(38, 18)) as decimal_38_18
         |FROM input""".stripMargin,
       """message org.apache.flink.avro.generated.record {
-        |  required int64 system_time (TIMESTAMP(MILLIS,true));
-        |  required int64 event_time (TIMESTAMP(MILLIS,true));
         |  optional binary decimal_13_4 (DECIMAL(13,4));
         |  optional binary decimal_38_18 (DECIMAL(38,18));
         |}
         |""".stripMargin,
       List(
-        WriteResult(
-          ts(1, 1),
-          ts(1, 1),
+        ValueDecimalPrecision(
           Some(BigDecimal("123456789.0123")),
           Some(BigDecimal("123456789.0123"))
         ),
-        WriteResult(
-          ts(1, 2),
-          ts(1, 2),
+        ValueDecimalPrecision(
           Some(BigDecimal("-123456789.0123")),
           Some(BigDecimal("-123456789.0123"))
         ),
-        WriteResult(
-          ts(1, 3),
-          ts(1, 3),
+        ValueDecimalPrecision(
           None,
           Some(BigDecimal("12345678901234567890.123456789012345678"))
         ),
-        WriteResult(
-          ts(1, 4),
-          ts(1, 4),
+        ValueDecimalPrecision(
           None,
           Some(BigDecimal("-12345678901234567890.123456789012345678"))
         )

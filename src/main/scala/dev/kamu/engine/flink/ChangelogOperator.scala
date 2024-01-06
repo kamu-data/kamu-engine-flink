@@ -5,20 +5,20 @@ import org.apache.flink.streaming.api.operators.{
   OneInputStreamOperator
 }
 import org.apache.flink.streaming.runtime.streamrecord.StreamRecord
-import org.apache.flink.types.Row
-import org.slf4j.LoggerFactory
+import org.apache.flink.types.{Row, RowKind}
 
-class OffsetOperator(offsetFieldIndex: Int, startOffset: Long)
+class ChangelogOperator(opFieldIndex: Int)
     extends AbstractStreamOperator[Row]
     with OneInputStreamOperator[Row, Row] {
 
-  private val logger = LoggerFactory.getLogger(getClass)
-
-  private var offset = startOffset;
-
   override def processElement(element: StreamRecord[Row]): Unit = {
-    element.getValue.setField(offsetFieldIndex, offset)
-    offset += 1
+    val op: Int = element.getValue.getKind match {
+      case RowKind.INSERT        => Op.Append
+      case RowKind.DELETE        => Op.Retract
+      case RowKind.UPDATE_BEFORE => Op.CorrectFrom
+      case RowKind.UPDATE_AFTER  => Op.CorrectTo
+    }
+    element.getValue.setField(opFieldIndex, op)
     output.collect(element)
   }
 }

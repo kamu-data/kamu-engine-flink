@@ -9,8 +9,8 @@ import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
 import dev.kamu.core.manifests.{
-  TransformRequestInput,
   TransformRequest,
+  TransformRequestInput,
   TransformResponse
 }
 import dev.kamu.core.utils.fs._
@@ -31,7 +31,7 @@ import org.apache.flink.table.runtime.typeutils.{
   ExternalTypeInfo,
   InternalTypeInfo
 }
-import org.apache.flink.types.Row
+import org.apache.flink.types.{Row, RowKind}
 import org.apache.parquet.hadoop.ParquetFileReader
 import org.apache.parquet.hadoop.util.HadoopInputFile
 import org.apache.parquet.schema.MessageType
@@ -184,7 +184,8 @@ class RawQueryEngine(
         "input",
         inputPaths.map(_.toString),
         inputFormat,
-        row => 0,
+        _ => RowKind.INSERT,
+        _ => 0,
         None,
         Vector.empty,
         true,

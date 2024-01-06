@@ -18,9 +18,6 @@ class EngineRawQueryTest
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       val engineRunner = new EngineRunner(new DockerClient())
 
-      val inputLayout = tempLayout(tempDir, "in")
-      val outputLayout = tempLayout(tempDir, "out")
-
       val inputPath = tempDir.resolve("input.parquet")
       val outputPath = tempDir.resolve("output.parquet")
 
@@ -46,6 +43,7 @@ class EngineRawQueryTest
            |      SELECT
            |        `offset`,
            |        `system_time`,
+           |        `op`,
            |        `event_time`,
            |        `symbol`,
            |        `price` * 10 as `price`

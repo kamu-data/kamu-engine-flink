@@ -3,7 +3,7 @@ package dev.kamu.engine.flink.test
 import better.files.File
 import dev.kamu.core.manifests._
 import dev.kamu.core.utils.Temp
-import dev.kamu.engine.flink.TransformEngine
+import dev.kamu.engine.flink.{Op, TransformEngine}
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.table.api.bridge.scala._
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
@@ -153,14 +153,14 @@ class FunctionalJoinStreamToTemporalTableTest
       ParquetHelpers.write(
         tickersDataPath,
         Seq(
-          Ticker(0, ts(5), ts(1), "A", 10),
-          Ticker(1, ts(5), ts(1), "B", 20),
-          Ticker(2, ts(5), ts(2), "A", 10),
-          Ticker(3, ts(5), ts(2), "B", 20),
-          Ticker(4, ts(5), ts(3), "A", 12),
-          Ticker(5, ts(5), ts(3), "B", 22),
-          Ticker(6, ts(5), ts(4), "A", 14),
-          Ticker(7, ts(5), ts(4), "B", 24)
+          Ticker(0, Op.Append, ts(5), ts(1), "A", 10),
+          Ticker(1, Op.Append, ts(5), ts(1), "B", 20),
+          Ticker(2, Op.Append, ts(5), ts(2), "A", 10),
+          Ticker(3, Op.Append, ts(5), ts(2), "B", 20),
+          Ticker(4, Op.Append, ts(5), ts(3), "A", 12),
+          Ticker(5, Op.Append, ts(5), ts(3), "B", 22),
+          Ticker(6, Op.Append, ts(5), ts(4), "A", 14),
+          Ticker(7, Op.Append, ts(5), ts(4), "B", 24)
         )
       )
 

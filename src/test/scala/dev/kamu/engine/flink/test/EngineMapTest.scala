@@ -3,9 +3,14 @@ package dev.kamu.engine.flink.test
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
 import dev.kamu.core.manifests.parsing.pureconfig.yaml.defaults._
-import dev.kamu.core.manifests.{TransformRequest, OffsetInterval}
+import dev.kamu.core.manifests.{
+  DatasetVocabulary,
+  OffsetInterval,
+  TransformRequest
+}
 import dev.kamu.core.utils.{DockerClient, Temp}
 import dev.kamu.core.utils.fs._
+import dev.kamu.engine.flink.Op
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 class EngineMapTest
@@ -15,7 +20,7 @@ class EngineMapTest
     with TimeHelpers
     with EngineHelpers {
 
-  test("Simple map") {
+  test("Map - simple") {
     Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
       val engineRunner = new EngineRunner(new DockerClient())
 
@@ -44,6 +49,7 @@ class EngineMapTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: event_time
+           |  operationTypeColumn: op
            |""".stripMargin
       )
 
@@ -136,6 +142,92 @@ class EngineMapTest
           Ticker(6, ts(20), ts(7), "A", 130),
           Ticker(7, ts(20), ts(8), "B", 230)
         )
+      }
+    }
+  }
+
+  test("Map - with corrections and retractions") {
+    Temp.withRandomTempDir("kamu-engine-flink") { tempDir =>
+      val engineRunner = new EngineRunner(new DockerClient())
+
+      val inputLayout = tempLayout(tempDir, "in")
+      val outputLayout = tempLayout(tempDir, "out")
+
+      val requestTemplate = yaml.load[TransformRequest](
+        s"""
+           |datasetId: "did:odf:blah"
+           |datasetAlias: out
+           |systemTime: "2020-01-01T00:00:00Z"
+           |nextOffset: 0
+           |transform:
+           |  kind: Sql
+           |  engine: flink
+           |  query: |
+           |    select
+           |      op,
+           |      event_time,
+           |      symbol,
+           |      price * 10 as price
+           |    from input
+           |queryInputs: []
+           |newCheckpointPath: ""
+           |newDataPath: ""
+           |vocab:
+           |  offsetColumn: offset
+           |  systemTimeColumn: system_time
+           |  eventTimeColumn: event_time
+           |  operationTypeColumn: op
+           |""".stripMargin
+      )
+
+      {
+        var request = withRandomOutputPath(requestTemplate, outputLayout)
+        request = withInputData(
+          request,
+          "input",
+          inputLayout.dataDir,
+          Seq(
+            Ticker(0, Op.Append, ts(5), ts(1), "A", 10),
+            Ticker(1, Op.CorrectFrom, ts(5), ts(1), "A", 10),
+            Ticker(2, Op.CorrectTo, ts(5), ts(1), "A", 11),
+            Ticker(3, Op.Retract, ts(5), ts(1), "A", 11)
+          )
+        )
+
+        val result = engineRunner.executeTransform(
+          withWatermarks(request, Map("input" -> ts(1)))
+            .copy(systemTime = ts(10).toInstant, nextOffset = 0),
+          tempDir
+        )
+
+        val actual = ParquetHelpers
+          .read[Ticker](request.newDataPath)
+
+        actual shouldEqual List(
+          Ticker(0, Op.Append, ts(10), ts(1), "A", 100),
+          Ticker(1, Op.CorrectFrom, ts(10), ts(1), "A", 100),
+          Ticker(2, Op.CorrectTo, ts(10), ts(1), "A", 110),
+          Ticker(3, Op.Retract, ts(10), ts(1), "A", 110)
+        )
+
+        ParquetHelpers
+          .getSchemaFromFile(request.newDataPath)
+          .toString
+          .trim() shouldEqual
+          """message org.apache.flink.avro.generated.record {
+              |  required int64 offset;
+              |  required int32 op;
+              |  required int64 system_time (TIMESTAMP(MILLIS,true));
+              |  required int64 event_time (TIMESTAMP(MILLIS,true));
+              |  required binary symbol (STRING);
+              |  required int32 price;
+              |}""".stripMargin
+
+        result.newOffsetInterval.get shouldEqual OffsetInterval(
+          start = 0,
+          end = 3
+        )
+        result.newWatermark.get shouldEqual ts(1).toInstant
       }
     }
   }

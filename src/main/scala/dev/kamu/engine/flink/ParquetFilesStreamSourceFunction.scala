@@ -12,6 +12,7 @@ import org.apache.flink.streaming.api.functions.source.{
 }
 import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.table.data.RowData
+import org.apache.flink.types.RowKind
 import org.slf4j.LoggerFactory
 
 import java.net.URI
@@ -21,6 +22,7 @@ class ParquetFilesStreamSourceFunction(
   sourceName: String,
   filesToRead: Vector[String],
   inputFormat: BulkFormat[RowData, FileSourceSplit],
+  rowKindExtractor: RowData => RowKind,
   timestampExtractor: RowData => Long,
   prevWatermark: Option[Instant],
   explicitWatermarks: Vector[Instant],
@@ -85,11 +87,13 @@ class ParquetFilesStreamSourceFunction(
 
         while (record != null) {
           val rowData = record.getRecord
+          val rowKind = rowKindExtractor(rowData)
           val timestamp = timestampExtractor(rowData)
 
           // TODO: Support different watermarking strategies
           // Currently this source only emits watermarks at the beginning and the end of processing
           // We may want to have watermarks for intermediate events too and be able to define watermark lag.
+          rowData.setRowKind(rowKind)
           ctx.collectWithTimestamp(rowData, timestamp)
 
           record = batch.next()

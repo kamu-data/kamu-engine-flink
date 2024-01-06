@@ -35,7 +35,8 @@ trait EngineHelpers {
     request: TransformRequest,
     queryAlias: String,
     dataDir: Path,
-    data: Seq[T]
+    data: Seq[T],
+    vocab: DatasetVocabulary = DatasetVocabulary.default()
   )(
     implicit schemaFor: SchemaFor[T]
   ): TransformRequest = {
@@ -62,7 +63,7 @@ trait EngineHelpers {
               schemaFile = inputPath,
               dataPaths = Vector(inputPath),
               explicitWatermarks = Vector.empty,
-              vocab = DatasetVocabulary.default()
+              vocab = vocab
             )
           )
         )

@@ -110,6 +110,7 @@ public class ParquetSchemaConverterKamu extends ParquetSchemaConverter {
                             case TIMESTAMP_MILLIS:
                                 logicalType = new TimestampType(isOptional, TIME_PRECISION);
                                 break;
+                            case UINT_64:
                             case INT_64:
                                 logicalType = new BigIntType(isOptional);
                                 break;

@@ -32,7 +32,7 @@ import scala.reflect.ClassTag
 class EngineRunner(
   dockerClient: DockerClient,
   image: String =
-    "ghcr.io/kamu-data/engine-flink:0.17.0-flink_1.16.0-scala_2.12-java8",
+    "ghcr.io/kamu-data/engine-flink:0.18.0-flink_1.16.0-scala_2.12-java8",
   networkName: String = "kamu-flink"
 ) {
   private val logger = LoggerFactory.getLogger(getClass)

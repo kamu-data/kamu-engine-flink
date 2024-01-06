@@ -2,7 +2,6 @@ package dev.kamu.engine.flink.test
 
 import java.nio.file.Files
 import java.sql.Timestamp
-
 import pureconfig.generic.auto._
 import dev.kamu.core.manifests._
 import dev.kamu.core.manifests.parsing.pureconfig.yaml
@@ -11,16 +10,30 @@ import dev.kamu.core.manifests.{TransformRequest, TransformRequestInput}
 import dev.kamu.core.utils.DockerClient
 import dev.kamu.core.utils.fs._
 import dev.kamu.core.utils.Temp
+import dev.kamu.engine.flink.Op
 import org.scalatest.{BeforeAndAfter, FunSuite, Matchers}
 
 case class Ticker(
   offset: Long,
+  op: Int,
   system_time: Timestamp,
   event_time: Timestamp,
   symbol: String,
   price: Int
 ) extends HasOffset {
   override def getOffset: Long = offset
+}
+
+object Ticker {
+  def apply(
+    offset: Long,
+    system_time: Timestamp,
+    event_time: Timestamp,
+    symbol: String,
+    price: Int
+  ): Ticker = {
+    Ticker(offset, Op.Append, system_time, event_time, symbol, price)
+  }
 }
 
 case class TickerSummary(
@@ -55,6 +68,7 @@ class EngineAggregationTest
            |  offsetColumn: offset
            |  systemTimeColumn: system_time
            |  eventTimeColumn: event_time
+           |  operationTypeColumn: op
            |transform:
            |  kind: Sql
            |  engine: flink
@@ -327,6 +341,7 @@ class EngineAggregationTest
           |  offsetColumn: offset
           |  systemTimeColumn: system_time
           |  eventTimeColumn: event_time
+          |  operationTypeColumn: op
           |""".stripMargin
       )
 
