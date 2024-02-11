@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2024-02-11
+### Added
+- Building a multi-platform image for `arm64` architectures
+
 ## [0.18.0] - 2024-01-10
 ### Changed
 - Upgraded to unified ODF schema
@@ -19,7 +23,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.15.1] - 2023-01-30
 ### Changed
-- Use `FileSystemCheckpointStorage` to avoid errors when savepointing operators with state larget than 5MiB
+- Use `FileSystemCheckpointStorage` to avoid errors when savepointing operators with state larger than 5MiB
 
 ## [0.15.0] - 2023-01-25
 ### Changed
@@ -28,7 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.14.0] - 2022-04-22
 ### Changed
 - Updated to latest ODF schemas
-- Adapter will now tar/untar checkpoints to have them managed as files
+- Adapter will now tar/un-tar checkpoints to have them managed as files
 
 > TODO: Some change logs are missing
 
@@ -69,4 +73,4 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.1.0] - 2020-06-14
 ### Added
-- Initial verison
+- Initial version

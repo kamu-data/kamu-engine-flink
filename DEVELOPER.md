@@ -25,10 +25,10 @@ You will need:
 To install Java & Scala we recommend using [SdkMan](https://sdkman.io/). Install the tool itself and then you can use following versions of components:
 
 ```bash
-java: 8.0.292-zulu
-maven: 3.8.1
-sbt: 1.5.5
-scala: 2.12.13
+sdk use java  8.0.292-zulu
+sdk use maven 3.8.1
+sdk use sbt   1.5.5
+sdk use scala 2.12.13
 ```
 
 Once installed, you can configure IntelliJ IDEA to use this runtime and tools and open the directory as an SBT project.
@@ -50,8 +50,14 @@ When developing the engine you can run `sbt` in the root directory and then use:
 To release a new version:
 - Commit your changes
 - Increment the version number in `Makefile`
-- Build image using `make image`
+- Build image using `make image-multi-arch`
   - This will build the adapter and the engine assembly
-- Push image to Docker Hub using `make image-push`
+  - See docker manual about [building multi-arch images](https://docs.docker.com/build/building/multi-platform/)
+  - Note: on Linux to perform multi-arch build it seems to be enough to create a `buildx` runner as:
+    ```
+    docker buildx create --use --name multi-arch-builder
+    ```
+    The runner seems to come equipped with QEMU allowing us to cross-build
+- Push image to the registry using `make image-push`
 - Tag your last commit with `vX.Y.Z`
 - Push changes to git repo
