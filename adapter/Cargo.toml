@@ -5,7 +5,7 @@ edition = "2021"
 
 [dependencies]
 # Kamu
-opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.153.0" }
+opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", tag = "v0.174.1" }
 # opendatafabric = { git = "https://github.com/kamu-data/kamu-cli", branch = "feature/unified-schema" }
 
 # RPC

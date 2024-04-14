@@ -19,9 +19,8 @@ adapter-assembly:
 adapter-assembly-multi-arch:
 	rm -rf image/tmp
 	mkdir -p image/tmp/linux/amd64 image/tmp/linux/arm64
-	cd adapter && \
-	RUSTFLAGS="" cross build --target x86_64-unknown-linux-musl --release && \
-	RUSTFLAGS="" cross build --target aarch64-unknown-linux-musl --release
+	cd adapter && RUSTFLAGS="" cross build --target x86_64-unknown-linux-musl --release
+	cd adapter && RUSTFLAGS="" cross build --target aarch64-unknown-linux-musl --release
 	cp adapter/target/x86_64-unknown-linux-musl/release/kamu-engine-flink-adapter image/tmp/linux/amd64/adapter
 	cp adapter/target/aarch64-unknown-linux-musl/release/kamu-engine-flink-adapter image/tmp/linux/arm64/adapter
 
