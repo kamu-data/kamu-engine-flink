@@ -27,7 +27,7 @@ class MaxOutOfOrderWatermarkGenerator[T](
     val wm = eventTimestamp - maxOutOfOrderBy
 
     if (wm > maxWatermark) {
-      logger.info(s"Emitting watermark: ${Instant.ofEpochMilli(wm)}")
+      logger.debug(s"Emitting watermark: ${Instant.ofEpochMilli(wm)}")
       maxWatermark = wm
       output.emitWatermark(
         new org.apache.flink.api.common.eventtime.Watermark(
@@ -35,7 +35,7 @@ class MaxOutOfOrderWatermarkGenerator[T](
         )
       )
     } else {
-      logger.info(s"Ignoring watermark: ${Instant.ofEpochMilli(wm)}")
+      logger.debug(s"Ignoring watermark: ${Instant.ofEpochMilli(wm)}")
     }
   }
 

@@ -227,10 +227,14 @@ class RawQueryEngine(
     }
 
     def withDebugLogging(id: String): DataStream[T] = {
-      s.transform(
-        "snitch",
-        new SnitchOperator(id)
-      )(s.dataType)
+      if (logger.isDebugEnabled) {
+        s.transform(
+          "snitch",
+          new SnitchOperator(id)
+        )(s.dataType)
+      } else {
+        s
+      }
     }
 
   }
